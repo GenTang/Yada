@@ -1,26 +1,16 @@
-"""The minimal Yada agent loop."""
+"""The minimal append-only Yada agent loop."""
 
 from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any, Callable, Protocol
+from typing import Any, Callable
 
-from yada.client import Completion
-from yada.prompts import SYSTEM_PROMPT, task_prompt
-from yada.tools import ToolExecution, ToolRunner
-from yada.trace import TraceWriter
-
-
-class CompletionClient(Protocol):
-    model: str
-
-    def complete(
-        self,
-        *,
-        messages: list[dict[str, Any]],
-        tools: list[dict[str, Any]],
-    ) -> Completion: ...
+from yada.agents.prompts import SYSTEM_PROMPT, task_prompt
+from yada.models import CompletionClient
+from yada.tools import ToolRunner
+from yada.tools.base import ToolExecution
+from yada.traces import TraceWriter
 
 
 @dataclass(frozen=True)
@@ -71,7 +61,9 @@ class Agent:
         no_tool_turns = 0
         for step in range(1, self.max_steps + 1):
             self.emit(f"\n[{step}/{self.max_steps}] Asking DeepSeek...")
-            completion = self.client.complete(messages=messages, tools=self.tools.schemas)
+            completion = self.client.complete(
+                messages=messages, tools=self.tools.schemas
+            )
             _merge_usage(total_usage, completion.usage)
             assistant_message = completion.message
             messages.append(assistant_message)
@@ -99,7 +91,9 @@ class Agent:
                     "successful test/build; a text-only response does not complete the task."
                 )
                 if no_tool_turns >= 3:
-                    reminder += " This is your final reminder to use the required tool protocol."
+                    reminder += (
+                        " This is your final reminder to use the required tool protocol."
+                    )
                 messages.append({"role": "user", "content": reminder})
                 self.trace.write("protocol_reminder", {"step": step, "text": reminder})
                 continue
@@ -112,7 +106,9 @@ class Agent:
                     ToolExecution(
                         {
                             "ok": False,
-                            "error": "finish must be the only tool call in its assistant turn",
+                            "error": (
+                                "finish must be the only tool call in its assistant turn"
+                            ),
                         }
                     )
                     for _ in tool_calls
@@ -123,9 +119,7 @@ class Agent:
                 ]
 
             for call, execution in zip(tool_calls, executions, strict=True):
-                tool_call_id = call.get("id")
-                if not tool_call_id:
-                    tool_call_id = f"missing-tool-call-id-{step}"
+                tool_call_id = call.get("id") or f"missing-tool-call-id-{step}"
                 messages.append(
                     {
                         "role": "tool",
@@ -143,14 +137,12 @@ class Agent:
                     },
                 )
                 if execution.finished:
-                    summary = str(execution.data.get("summary", "Task completed"))
-                    final_state = self.tools.final_state()
                     result = AgentResult(
                         finished=True,
                         steps=step,
-                        summary=summary,
+                        summary=str(execution.data.get("summary", "Task completed")),
                         usage=total_usage,
-                        final_state=final_state,
+                        final_state=self.tools.final_state(),
                     )
                     self.trace.write("run_end", _result_record(result))
                     return result
@@ -200,8 +192,7 @@ class Agent:
 
 
 def _tool_name(call: dict[str, Any]) -> str:
-    function = call.get("function") or {}
-    name = function.get("name")
+    name = (call.get("function") or {}).get("name")
     return str(name) if name else "<missing>"
 
 
@@ -224,3 +215,4 @@ def _result_record(result: AgentResult) -> dict[str, Any]:
         "usage": result.usage,
         "final_state": result.final_state,
     }
+

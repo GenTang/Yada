@@ -6,22 +6,13 @@ import json
 import time
 import urllib.error
 import urllib.request
-from dataclasses import dataclass
 from typing import Any
+
+from yada.models.base import Completion
 
 
 class DeepSeekAPIError(RuntimeError):
     """Raised when a DeepSeek request cannot be completed."""
-
-
-@dataclass(frozen=True)
-class Completion:
-    message: dict[str, Any]
-    usage: dict[str, Any]
-    response_id: str | None = None
-    model: str | None = None
-    system_fingerprint: str | None = None
-    finish_reason: str | None = None
 
 
 class DeepSeekClient:
@@ -88,7 +79,6 @@ class DeepSeekClient:
                 "User-Agent": "yada-agent/0.1.0",
             },
         )
-
         response_data = self._send_with_retries(request)
         try:
             choice = response_data["choices"][0]
@@ -98,8 +88,7 @@ class DeepSeekClient:
                 f"Malformed DeepSeek response: {json.dumps(response_data)[:1000]}"
             ) from exc
 
-        # Keep reasoning_content in the in-memory message. DeepSeek requires it to
-        # be sent back after tool calls in thinking mode.
+        # DeepSeek requires reasoning_content to be sent back after tool calls.
         message = {
             key: raw_message[key]
             for key in ("role", "content", "reasoning_content", "tool_calls")
@@ -107,11 +96,9 @@ class DeepSeekClient:
         }
         message.setdefault("role", "assistant")
         message.setdefault("content", "")
-
-        usage = response_data.get("usage") or {}
         return Completion(
             message=message,
-            usage=usage,
+            usage=response_data.get("usage") or {},
             response_id=response_data.get("id"),
             model=response_data.get("model"),
             system_fingerprint=response_data.get("system_fingerprint"),
@@ -142,5 +129,5 @@ class DeepSeekClient:
                 if attempt >= self.max_retries:
                     break
             time.sleep(min(2**attempt, 8))
-
         raise DeepSeekAPIError(f"DeepSeek request failed: {last_error}") from last_error
+

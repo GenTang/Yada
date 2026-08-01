@@ -44,3 +44,4 @@ class TraceWriter:
         if isinstance(value, list):
             return [self._sanitize(item) for item in value]
         return value
+

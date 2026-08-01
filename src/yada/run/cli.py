@@ -9,10 +9,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from yada import __version__
-from yada.agent import Agent
-from yada.client import DeepSeekAPIError, DeepSeekClient
+from yada.agents import Agent
+from yada.models import DeepSeekAPIError, DeepSeekClient
 from yada.tools import ToolRunner
-from yada.trace import TraceWriter
+from yada.traces import TraceWriter
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -23,7 +23,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("task", nargs="?", help="Coding task to complete.")
     parser.add_argument("--task-file", type=Path, help="Read the task from a UTF-8 file.")
     parser.add_argument(
-        "--workspace", type=Path, default=Path.cwd(), help="Workspace root (default: cwd)."
+        "--workspace",
+        type=Path,
+        default=Path.cwd(),
+        help="Workspace root (default: cwd).",
     )
     parser.add_argument(
         "--model",
@@ -94,31 +97,31 @@ def run_cli(argv: list[str] | None = None) -> int:
 
     trace_path = args.trace or _default_trace_path(workspace)
     command_policy = "allow" if args.yes else args.command_policy
-    trace = TraceWriter(trace_path, include_reasoning=args.trace_reasoning)
-    client = DeepSeekClient(
-        api_key=api_key,
-        base_url=args.base_url,
-        model=args.model,
-        thinking=args.thinking,
-        reasoning_effort=args.reasoning_effort,
-        max_output_tokens=args.max_output_tokens,
-        timeout_seconds=args.api_timeout,
-    )
-    tools = ToolRunner(
-        workspace,
-        command_policy=command_policy,
-        command_timeout_seconds=args.command_timeout,
-    )
     agent = Agent(
-        client=client,
-        tools=tools,
-        trace=trace,
+        client=DeepSeekClient(
+            api_key=api_key,
+            base_url=args.base_url,
+            model=args.model,
+            thinking=args.thinking,
+            reasoning_effort=args.reasoning_effort,
+            max_output_tokens=args.max_output_tokens,
+            timeout_seconds=args.api_timeout,
+        ),
+        tools=ToolRunner(
+            workspace,
+            command_policy=command_policy,
+            command_timeout_seconds=args.command_timeout,
+        ),
+        trace=TraceWriter(trace_path, include_reasoning=args.trace_reasoning),
         max_steps=args.max_steps,
     )
 
     print(f"Yada {__version__}")
     print(f"Workspace: {workspace}")
-    print(f"Model: {args.model} (thinking={args.thinking}, effort={args.reasoning_effort})")
+    print(
+        f"Model: {args.model} "
+        f"(thinking={args.thinking}, effort={args.reasoning_effort})"
+    )
     print(f"Trace: {trace_path}")
     if command_policy == "allow":
         print("WARNING: command execution is autonomous; use a container for untrusted repos.")
@@ -154,3 +157,4 @@ def _default_trace_path(workspace: Path) -> Path:
 
 def main() -> None:
     raise SystemExit(run_cli())
+

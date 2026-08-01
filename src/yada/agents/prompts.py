@@ -1,4 +1,4 @@
-"""Stable prompts for the Yada agent loop."""
+"""Stable prompts for the default Yada agent."""
 
 SYSTEM_PROMPT = """You are Yada, a small autonomous coding agent optimized for DeepSeek.
 
@@ -37,3 +37,4 @@ Task:
 Complete the task autonomously. Existing visible tests may be used, but hidden tests are
 not available. Preserve existing behavior outside the requested change.
 """
+
