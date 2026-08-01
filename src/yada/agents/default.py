@@ -215,4 +215,3 @@ def _result_record(result: AgentResult) -> dict[str, Any]:
         "usage": result.usage,
         "final_state": result.final_state,
     }
-

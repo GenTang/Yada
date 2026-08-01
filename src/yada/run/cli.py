@@ -157,4 +157,3 @@ def _default_trace_path(workspace: Path) -> Path:
 
 def main() -> None:
     raise SystemExit(run_cli())
-

@@ -6,7 +6,7 @@ RUN apt-get update \
 
 WORKDIR /app
 COPY pyproject.toml README.md LICENSE ./
-COPY yada ./yada
+COPY src ./src
 RUN pip install --no-cache-dir .
 
 WORKDIR /workspace
