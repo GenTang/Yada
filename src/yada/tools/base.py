@@ -13,6 +13,8 @@ from yada.exceptions import ToolError
 
 @dataclass
 class ToolState:
+    """Mutable verification state shared by all tools in one agent run."""
+
     revision: int = 0
     verified_revision: int = -1
     patch_count: int = 0
@@ -22,6 +24,8 @@ class ToolState:
 
 @dataclass
 class ToolContext:
+    """Workspace, policy, limits, and state passed to every tool handler."""
+
     workspace: Workspace
     approver: CommandApprover
     command_timeout_seconds: int = 120
@@ -31,13 +35,16 @@ class ToolContext:
 
 @dataclass(frozen=True)
 class ToolExecution:
+    """Structured tool result plus an explicit terminal-state marker."""
+
     data: dict[str, Any]
     finished: bool = False
 
     @property
     def content(self) -> str:
+        """Serialize the observation exactly as it is sent back to the model."""
+
         return json.dumps(self.data, ensure_ascii=False)
 
 
 __all__ = ["ToolContext", "ToolError", "ToolExecution", "ToolState"]
-

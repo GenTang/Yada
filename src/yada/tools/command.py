@@ -53,6 +53,22 @@ def run_command(
     cwd: str = ".",
     timeout_seconds: int | None = None,
 ) -> dict[str, Any]:
+    """Run one policy-gated command without invoking a shell parser.
+
+    Args:
+        context: Shared workspace, approval policy, limits, and verification state.
+        argv: Executable plus arguments. Shell strings are intentionally unsupported.
+        purpose: ``inspect``, ``test``, or ``build``; only the latter two can verify.
+        cwd: Workspace-relative working directory.
+        timeout_seconds: Optional per-call timeout between 1 and 1800 seconds.
+
+    Returns:
+        Structured exit status, timing, bounded output, and verification revision.
+
+    Raises:
+        ToolError: If policy validation or user approval rejects the command.
+    """
+
     if purpose not in {"inspect", "test", "build"}:
         raise ToolError("purpose must be inspect, test, or build")
     if not isinstance(argv, list) or not argv or len(argv) > 40:
@@ -109,6 +125,8 @@ def run_command(
     stdout_text, stdout_truncated = truncate_text(stdout, context.max_output_chars)
     stderr_text, stderr_truncated = truncate_text(stderr, context.max_output_chars)
 
+    # Verification is tied to the current revision. A later patch increments the
+    # revision and invalidates this success, so finish cannot use stale test output.
     if purpose in {"test", "build"} and exit_code == 0 and not timed_out:
         context.state.verified_revision = context.state.revision
         context.state.successful_verifications.append(
@@ -144,4 +162,3 @@ def _sanitized_environment() -> dict[str, str]:
         for key, value in os.environ.items()
         if not any(marker in key.upper() for marker in secret_markers)
     }
-

@@ -12,6 +12,12 @@ PROTECTED_PARTS = {".git", ".yada"}
 
 
 class Workspace:
+    """Resolve paths and hashes within one protected repository root.
+
+    Args:
+        root: Existing directory that defines the accessible workspace boundary.
+    """
+
     def __init__(self, root: Path) -> None:
         resolved = root.expanduser().resolve()
         if not resolved.is_dir():
@@ -19,6 +25,20 @@ class Workspace:
         self.root = resolved
 
     def resolve(self, user_path: str, *, allow_missing: bool = False) -> Path:
+        """Resolve a user path while rejecting escapes and protected directories.
+
+        Args:
+            user_path: Absolute or workspace-relative path supplied to a tool.
+            allow_missing: Permit a non-existent final target, as required for
+                creating a new file with ``apply_patch``.
+
+        Returns:
+            Normalized absolute path inside the workspace.
+
+        Raises:
+            ToolError: If the path is empty, missing, protected, or outside root.
+        """
+
         if not isinstance(user_path, str) or not user_path.strip():
             raise ToolError("path must be a non-empty string")
         raw = Path(user_path).expanduser()
@@ -35,11 +55,15 @@ class Workspace:
         return resolved
 
     def display(self, path: Path) -> str:
+        """Return a normalized workspace-relative path for model observations."""
+
         relative = path.relative_to(self.root)
         return relative.as_posix() if relative.parts else "."
 
     @staticmethod
     def sha256(path: Path) -> str:
+        """Stream a file and return its lowercase SHA-256 digest."""
+
         digest = hashlib.sha256()
         with path.open("rb") as handle:
             for chunk in iter(lambda: handle.read(128 * 1024), b""):

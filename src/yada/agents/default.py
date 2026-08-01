@@ -1,20 +1,36 @@
-"""The minimal append-only Yada agent loop."""
+"""Default Yada orchestration loop.
+
+The loop intentionally coordinates collaborators rather than implementing their
+policies: :class:`Planner` decides what may happen, :class:`Executor` owns tool
+side effects, and :class:`TraceWriter` records the resulting event stream.
+"""
 
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from yada.agents.prompts import SYSTEM_PROMPT, task_prompt
+from yada.agents.executor import Executor, tool_name
+from yada.agents.planning import Planner
 from yada.models import CompletionClient
 from yada.tools import ToolRunner
-from yada.tools.base import ToolExecution
 from yada.traces import TraceWriter
 
 
 @dataclass(frozen=True)
 class AgentResult:
+    """Final outcome returned by :meth:`Agent.run`.
+
+    Attributes:
+        finished: Whether the verification-gated ``finish`` tool succeeded.
+        steps: Number of model turns consumed.
+        summary: Model-provided summary or the step-limit explanation.
+        usage: Flattened token and provider usage counters.
+        final_state: Git diff/status snapshot from the tool runner.
+    """
+
     finished: bool
     steps: int
     summary: str
@@ -23,6 +39,18 @@ class AgentResult:
 
 
 class Agent:
+    """Coordinate model requests, planning decisions, and tool observations.
+
+    Args:
+        client: Model-neutral completion client.
+        tools: Workspace-scoped tool dispatcher.
+        trace: Trace sink for every important state transition.
+        max_steps: Maximum number of model turns before returning unfinished.
+        emit: Function used for concise interactive output.
+        planner: Optional policy replacement for tests or experiments.
+        executor: Optional execution replacement for tests or experiments.
+    """
+
     def __init__(
         self,
         *,
@@ -31,6 +59,8 @@ class Agent:
         trace: TraceWriter,
         max_steps: int = 30,
         emit: Callable[[str], None] = print,
+        planner: Planner | None = None,
+        executor: Executor | None = None,
     ) -> None:
         if max_steps < 1:
             raise ValueError("max_steps must be positive")
@@ -39,14 +69,24 @@ class Agent:
         self.trace = trace
         self.max_steps = max_steps
         self.emit = emit
+        self.planner = planner or Planner()
+        self.executor = executor or Executor(tools=tools, trace=trace, emit=emit)
 
     def run(self, task: str) -> AgentResult:
-        if not task.strip():
-            raise ValueError("task must not be empty")
-        messages: list[dict[str, Any]] = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": task_prompt(task)},
-        ]
+        """Run a coding task until verified completion or the step limit.
+
+        Args:
+            task: Natural-language coding task. Whitespace-only input is rejected.
+
+        Returns:
+            An :class:`AgentResult` containing the completion state and final diff.
+
+        Raises:
+            ValueError: If ``task`` is empty.
+            DeepSeekAPIError: Propagated from the configured completion client.
+        """
+
+        messages = self.planner.initial_messages(task)
         total_usage: dict[str, int] = {}
         self.trace.write(
             "run_start",
@@ -58,12 +98,33 @@ class Agent:
             },
         )
 
-        no_tool_turns = 0
+        consecutive_text_turns = 0
         for step in range(1, self.max_steps + 1):
             self.emit(f"\n[{step}/{self.max_steps}] Asking DeepSeek...")
-            completion = self.client.complete(
-                messages=messages, tools=self.tools.schemas
+            context_metrics = _message_metrics(messages)
+            self.trace.write(
+                "model_request",
+                {"step": step, "context": context_metrics},
             )
+            started = time.monotonic()
+            try:
+                completion = self.client.complete(
+                    messages=messages, tools=self.tools.schemas
+                )
+            except Exception as exc:
+                # Recording failures here leaves an explicit unmatched request in the
+                # trace, which is far easier to diagnose than a silently truncated run.
+                self.trace.write(
+                    "model_error",
+                    {
+                        "step": step,
+                        "duration_ms": round((time.monotonic() - started) * 1000),
+                        "error_type": type(exc).__name__,
+                        "error": str(exc),
+                    },
+                )
+                raise
+            duration_ms = round((time.monotonic() - started) * 1000)
             _merge_usage(total_usage, completion.usage)
             assistant_message = completion.message
             messages.append(assistant_message)
@@ -71,6 +132,8 @@ class Agent:
                 "assistant",
                 {
                     "step": step,
+                    "duration_ms": duration_ms,
+                    "request_context": context_metrics,
                     "message": assistant_message,
                     "usage": completion.usage,
                     "response_id": completion.response_id,
@@ -80,67 +143,51 @@ class Agent:
                 },
             )
 
-            tool_calls = assistant_message.get("tool_calls") or []
-            if not tool_calls:
-                no_tool_turns += 1
-                content = assistant_message.get("content") or ""
-                if content:
-                    self.emit(f"DeepSeek: {content.strip()}")
-                reminder = (
-                    "Continue working with tools. You must call finish after a patch and a "
-                    "successful test/build; a text-only response does not complete the task."
+            plan = self.planner.plan(
+                assistant_message,
+                consecutive_text_turns=consecutive_text_turns,
+            )
+            self.trace.write(
+                "plan_decision",
+                {
+                    "step": step,
+                    "action": "execute_tools" if plan.tool_calls else "remind",
+                    "tools": [tool_name(call) for call in plan.tool_calls],
+                    "rejection_error": plan.rejection_error,
+                },
+            )
+            consecutive_text_turns = plan.consecutive_text_turns
+            if not plan.tool_calls:
+                if plan.display_text:
+                    self.emit(f"DeepSeek: {plan.display_text}")
+                if plan.reminder is None:
+                    raise RuntimeError("planner returned no calls and no reminder")
+                messages.append({"role": "user", "content": plan.reminder})
+                self.trace.write(
+                    "protocol_reminder", {"step": step, "text": plan.reminder}
                 )
-                if no_tool_turns >= 3:
-                    reminder += (
-                        " This is your final reminder to use the required tool protocol."
-                    )
-                messages.append({"role": "user", "content": reminder})
-                self.trace.write("protocol_reminder", {"step": step, "text": reminder})
                 continue
-            no_tool_turns = 0
 
-            if len(tool_calls) > 1 and any(
-                _tool_name(call) == "finish" for call in tool_calls
-            ):
-                executions = [
-                    ToolExecution(
-                        {
-                            "ok": False,
-                            "error": (
-                                "finish must be the only tool call in its assistant turn"
-                            ),
-                        }
-                    )
-                    for _ in tool_calls
-                ]
-            else:
-                executions = [
-                    self._execute_tool_call(step, call) for call in tool_calls
-                ]
-
-            for call, execution in zip(tool_calls, executions, strict=True):
-                tool_call_id = call.get("id") or f"missing-tool-call-id-{step}"
+            executed_calls = self.executor.execute_batch(
+                step,
+                plan.tool_calls,
+                rejection_error=plan.rejection_error,
+            )
+            for executed in executed_calls:
                 messages.append(
                     {
                         "role": "tool",
-                        "tool_call_id": tool_call_id,
-                        "content": execution.content,
+                        "tool_call_id": executed.tool_call_id,
+                        "content": executed.execution.content,
                     }
                 )
-                self.trace.write(
-                    "tool_result",
-                    {
-                        "step": step,
-                        "tool_call_id": tool_call_id,
-                        "tool": _tool_name(call),
-                        "result": execution.data,
-                    },
-                )
-                if execution.finished:
+                if executed.execution.finished:
                     result = AgentResult(
                         finished=True,
                         steps=step,
-                        summary=str(execution.data.get("summary", "Task completed")),
+                        summary=str(
+                            executed.execution.data.get("summary", "Task completed")
+                        ),
                         usage=total_usage,
                         final_state=self.tools.final_state(),
                     )
@@ -157,46 +204,23 @@ class Agent:
         self.trace.write("run_end", _result_record(result))
         return result
 
-    def _execute_tool_call(self, step: int, call: dict[str, Any]) -> ToolExecution:
-        name = _tool_name(call)
-        raw_arguments = (call.get("function") or {}).get("arguments", "{}")
-        self.emit(f"Tool: {name}")
-        try:
-            if isinstance(raw_arguments, str):
-                arguments = json.loads(raw_arguments)
-            elif isinstance(raw_arguments, dict):
-                arguments = raw_arguments
-            else:
-                raise ValueError("tool arguments must be a JSON object")
-            if not isinstance(arguments, dict):
-                raise ValueError("tool arguments must decode to an object")
-        except (json.JSONDecodeError, ValueError) as exc:
-            execution = ToolExecution(
-                {"ok": False, "error": f"invalid tool arguments: {exc}"}
-            )
-            self.trace.write(
-                "tool_call",
-                {"step": step, "tool": name, "raw_arguments": raw_arguments},
-            )
-            return execution
 
-        self.trace.write(
-            "tool_call", {"step": step, "tool": name, "arguments": arguments}
-        )
-        execution = self.tools.execute(name, arguments)
-        status = "ok" if execution.data.get("ok") else "error"
-        self.emit(f"  -> {status}")
-        if not execution.data.get("ok"):
-            self.emit(f"  {execution.data.get('error', 'unknown tool error')}")
-        return execution
+def _message_metrics(messages: list[dict[str, Any]]) -> dict[str, int]:
+    """Return cheap context-growth signals without tokenizing provider payloads."""
 
-
-def _tool_name(call: dict[str, Any]) -> str:
-    name = (call.get("function") or {}).get("name")
-    return str(name) if name else "<missing>"
+    encoded = json.dumps(messages, ensure_ascii=False, default=str)
+    return {
+        "message_count": len(messages),
+        "serialized_chars": len(encoded),
+        "tool_result_count": sum(
+            1 for message in messages if message.get("role") == "tool"
+        ),
+    }
 
 
 def _merge_usage(total: dict[str, int], current: dict[str, Any]) -> None:
+    """Flatten and add integer usage counters reported by the provider."""
+
     for key, value in current.items():
         if isinstance(value, int):
             total[key] = total.get(key, 0) + value

@@ -5,9 +5,10 @@ specifically for DeepSeek V4.
 
 [中文说明](README.zh-CN.md)
 
-Yada is deliberately narrow: one agent, one append-only conversation, five
-tools, version-checked patches, and a verification gate. The runtime has no
-third-party Python dependencies. Development and tests use pytest.
+Yada is deliberately narrow: one agent loop, separate planning and execution
+boundaries, one append-only conversation, five tools, version-checked patches,
+and a verification gate. The runtime has no third-party Python dependencies.
+Development and tests use pytest.
 
 > Alpha status: the offline agent loop is tested, but no comparative benchmark
 > result is claimed yet.
@@ -29,6 +30,19 @@ The current hypotheses are:
 ## Quick start
 
 Requirements: Python 3.11+, Git, and a DeepSeek API key.
+
+The recommended workflow uses [uv](https://docs.astral.sh/uv/):
+
+```bash
+cd Yada
+uv sync --extra dev
+export DEEPSEEK_API_KEY="sk-..."
+
+uv run yada "Fix the failing parser edge case and run the relevant tests" \
+  --workspace /path/to/repository
+```
+
+The package also works with standard library tooling and pip:
 
 ```bash
 cd Yada
@@ -98,8 +112,20 @@ Tools:
 
 DeepSeek thinking-mode `reasoning_content` is retained in memory and passed back
 after tool calls, as required by the API. JSONL traces redact the reasoning text
-by default while retaining its length and hash. Use `--trace-reasoning` only if
-you intentionally want to store it.
+by default while retaining its length and hash. Each event includes a schema
+version, run ID, sequence, and elapsed time; model context growth and tool-call
+latency are recorded as explicit events. Use `--trace-reasoning` only if you
+intentionally want to store raw reasoning.
+
+Inspect a completed or interrupted run without manually scanning JSONL:
+
+```bash
+uv run yada-trace .yada/runs/20260801T120000.000000Z.jsonl
+```
+
+The report correlates model requests, tool-call IDs, errors, reminders, and the
+final verification state into a compact timeline. The source JSONL remains the
+durable, streaming-friendly record.
 
 ## Safety model
 
@@ -124,11 +150,12 @@ test → finish, plus stale hash, path escape, secret environment, and verificat
 gate tests.
 
 ```bash
-python3 -m pip install -e ".[dev]"
-python3 -m pytest
+uv sync --extra dev
+uv run pytest
 ```
 
-pytest is a development dependency rather than a runtime dependency. Its
+Without uv, use `python3 -m pip install -e ".[dev]"` followed by
+`python3 -m pytest`. pytest is a development dependency rather than a runtime dependency. Its
 fixtures keep repository setup reusable, `monkeypatch` makes process-boundary
 tests explicit, and plain `assert` statements produce compact failure output.
 
@@ -138,18 +165,25 @@ Yada uses a `src/` layout and keeps orchestration separate from execution:
 
 ```text
 src/yada/
-├── agents/        # append-only model/tool loop and prompts
+├── agents/        # thin loop, side-effect-free planner, and tool executor
 ├── models/        # model protocol and DeepSeek API adapter
 ├── environments/  # workspace boundary and command approval
 ├── tools/         # one module per tool plus the small dispatcher
-├── traces/        # JSONL trajectory writer
+├── traces/        # JSONL writer plus a human-readable diagnostic report
 ├── run/           # CLI entry point
 └── utils/         # bounded-output helpers
 tests/
 ├── agents/
 ├── models/
-└── tools/
+├── tools/
+└── traces/
 ```
+
+`Planner` owns conversation policy and validates the next action without I/O.
+`Executor` owns argument parsing, workspace side effects, and correlated tool
+events. `Agent` only coordinates the two. This is a deliberately small seam—not
+a second model call—but it prevents the main loop from accumulating every future
+planning and execution policy.
 
 The package boundaries follow the useful parts of mini-SWE-agent's structure,
 while Yada retains its own multi-tool protocol, SHA-bound patches, command

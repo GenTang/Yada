@@ -16,6 +16,8 @@ from yada.traces import TraceWriter
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """Build the public ``yada`` command-line parser."""
+
     parser = argparse.ArgumentParser(
         prog="yada",
         description="Yet Another DeepSeek Agent: a small DeepSeek-native coding agent.",
@@ -74,6 +76,16 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def run_cli(argv: list[str] | None = None) -> int:
+    """Parse arguments, assemble the runtime, and execute one task.
+
+    Args:
+        argv: Optional arguments excluding the executable name.
+
+    Returns:
+        ``0`` on verified completion, ``2`` when unfinished, ``3`` for a model
+        API error, and ``130`` when interrupted by the user.
+    """
+
     parser = build_parser()
     args = parser.parse_args(argv)
     if bool(args.task) == bool(args.task_file):
@@ -151,9 +163,13 @@ def run_cli(argv: list[str] | None = None) -> int:
 
 
 def _default_trace_path(workspace: Path) -> Path:
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    # Microseconds prevent two short runs launched in the same second from
+    # appending unrelated events to one file.
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
     return workspace / ".yada" / "runs" / f"{timestamp}.jsonl"
 
 
 def main() -> None:
+    """Console-script entry point."""
+
     raise SystemExit(run_cli())

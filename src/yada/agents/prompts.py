@@ -29,6 +29,15 @@ Tool strategy:
 
 
 def task_prompt(task: str) -> str:
+    """Wrap a user task with workspace and behavior constraints.
+
+    Args:
+        task: Natural-language coding task. Callers validate that it is non-empty.
+
+    Returns:
+        The stable user-message template used to start an agent run.
+    """
+
     return f"""Workspace: the tool root (shown as `.`).
 
 Task:
@@ -37,4 +46,3 @@ Task:
 Complete the task autonomously. Existing visible tests may be used, but hidden tests are
 not available. Preserve existing behavior outside the requested change.
 """
-

@@ -46,13 +46,28 @@ class ToolRunner:
 
     @property
     def workspace(self) -> Workspace:
+        """Expose the workspace boundary used by all registered handlers."""
+
         return self.context.workspace
 
     @property
     def schemas(self) -> list[dict[str, Any]]:
+        """Return the stable tool schemas sent with every model request."""
+
         return TOOL_SCHEMAS
 
     def execute(self, name: str, arguments: dict[str, Any]) -> ToolExecution:
+        """Dispatch one tool call and normalize expected validation failures.
+
+        Args:
+            name: Tool name from the model response.
+            arguments: Decoded JSON object for the selected handler.
+
+        Returns:
+            A model-safe result. Expected tool and argument errors become
+            ``{"ok": false, ...}`` observations instead of escaping the loop.
+        """
+
         try:
             if name == "finish":
                 return finish(self.context, **arguments)
@@ -65,5 +80,6 @@ class ToolRunner:
             return ToolExecution({"ok": False, "error": str(exc)})
 
     def final_state(self) -> dict[str, Any]:
-        return final_state(self.context)
+        """Collect the bounded Git status and diff used in the final result."""
 
+        return final_state(self.context)

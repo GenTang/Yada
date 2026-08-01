@@ -14,6 +14,18 @@ def read_file(
     start_line: int = 1,
     end_line: int | None = None,
 ) -> dict[str, Any]:
+    """Read a bounded line range and return the file's full-content hash.
+
+    Args:
+        context: Shared workspace boundary.
+        path: Workspace-relative file to read.
+        start_line: One-based first line, inclusive.
+        end_line: One-based final line, inclusive; defaults to a 200-line window.
+
+    Returns:
+        Numbered content, range metadata, and SHA-256 used by ``apply_patch``.
+    """
+
     file_path = context.workspace.resolve(path)
     if not file_path.is_file():
         raise ToolError(f"not a file: {path}")
@@ -43,4 +55,3 @@ def read_file(
         "total_lines": len(lines),
         "content": numbered,
     }
-

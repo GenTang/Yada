@@ -56,6 +56,19 @@ class DeepSeekClient:
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]],
     ) -> Completion:
+        """Send one OpenAI-compatible chat-completions request.
+
+        Args:
+            messages: Append-only conversation history, including tool results.
+            tools: Function schemas available to the model on this turn.
+
+        Returns:
+            Normalized assistant message, provider metadata, and usage counters.
+
+        Raises:
+            DeepSeekAPIError: If transport retries fail or the response is malformed.
+        """
+
         payload: dict[str, Any] = {
             "model": self.model,
             "messages": messages,

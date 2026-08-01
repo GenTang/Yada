@@ -11,6 +11,19 @@ from yada.utils.text import truncate_text
 
 
 def finish(context: ToolContext, summary: str) -> ToolExecution:
+    """Complete a run only after the latest revision passes verification.
+
+    Args:
+        context: Shared tool state and workspace.
+        summary: Concise model-authored description of the completed change.
+
+    Returns:
+        Terminal execution containing verification history and final Git state.
+
+    Raises:
+        ToolError: If no patch exists, tests are stale, or the diff has errors.
+    """
+
     if not isinstance(summary, str) or not summary.strip():
         raise ToolError("summary must be a non-empty string")
     if context.state.patch_count == 0:
@@ -50,6 +63,16 @@ def _git_diff_check(context: ToolContext) -> str:
 
 
 def final_state(context: ToolContext) -> dict[str, Any]:
+    """Collect bounded Git status and diffs, including newly created files.
+
+    Args:
+        context: Workspace and touched-file state for the current run.
+
+    Returns:
+        ``git_status``, ``diff_stat``, and ``diff`` fields, or ``None`` values
+        outside a Git repository.
+    """
+
     if not (context.workspace.root / ".git").exists():
         return {"git_status": None, "diff_stat": None, "diff": None}
     commands = {
@@ -79,6 +102,8 @@ def final_state(context: ToolContext) -> dict[str, Any]:
         if truncated:
             output[f"{key}_truncated"] = True
 
+    # Plain ``git diff`` omits untracked files. Reconstruct only files touched by
+    # this agent rather than dumping every unrelated untracked artifact.
     untracked_diffs: list[str] = []
     for relative_path in sorted(context.state.touched_files):
         file_path = context.workspace.resolve(relative_path, allow_missing=True)
@@ -107,4 +132,3 @@ def final_state(context: ToolContext) -> dict[str, Any]:
         combined = (output.get("diff") or "") + "".join(untracked_diffs)
         output["diff"], output["diff_truncated"] = truncate_text(combined, 30_000)
     return output
-

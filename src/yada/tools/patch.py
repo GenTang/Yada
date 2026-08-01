@@ -16,6 +16,21 @@ def apply_patch(
     patch: str,
     expected_files: list[dict[str, str]],
 ) -> dict[str, Any]:
+    """Apply a unified diff only when every target matches its declared version.
+
+    Args:
+        context: Shared workspace and verification state.
+        patch: Git-style unified diff with one ``diff --git`` header per target.
+        expected_files: Exact target set as ``path``/``sha256`` objects. New files
+            use the literal digest ``NEW``.
+
+    Returns:
+        New workspace revision and post-apply hashes for all touched files.
+
+    Raises:
+        ToolError: If the diff is unsafe, stale, malformed, or cannot be applied.
+    """
+
     if not isinstance(patch, str) or not patch.strip():
         raise ToolError("patch must be a non-empty unified diff")
     if len(patch) > 250_000:
@@ -28,6 +43,9 @@ def apply_patch(
             f"patch={sorted(touched)}, expected={sorted(expected)}"
         )
 
+    # The exact-set comparison above prevents a model from smuggling an unread
+    # target into a multi-file patch. This loop then provides optimistic locking
+    # for each existing file using the hash returned by read_file.
     for relative_path in sorted(touched):
         file_path = context.workspace.resolve(relative_path, allow_missing=True)
         declared = expected[relative_path]
@@ -42,6 +60,8 @@ def apply_patch(
         elif declared != "NEW":
             raise ToolError(f"new file {relative_path} must use sha256 value NEW")
 
+    # Validate the full transaction before mutating any path. ``git apply`` then
+    # applies the same bytes, avoiding a custom diff parser with different rules.
     _git_apply(context, patch, check_only=True)
     _git_apply(context, patch, check_only=False)
     context.state.revision += 1
@@ -154,4 +174,3 @@ def _git_apply(context: ToolContext, patch: str, *, check_only: bool) -> None:
         phase = "check" if check_only else "apply"
         error = (result.stderr or result.stdout).strip()
         raise ToolError(f"git apply {phase} failed: {error[:2000]}")
-

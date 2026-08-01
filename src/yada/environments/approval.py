@@ -22,6 +22,17 @@ class CommandApprover:
         self.allow_rest = mode == "allow"
 
     def approve(self, argv: list[str], cwd: str) -> bool:
+        """Apply the configured policy to one command invocation.
+
+        Args:
+            argv: Command executable and arguments, already policy-validated.
+            cwd: Workspace-relative directory displayed to the user.
+
+        Returns:
+            Whether the command may run. Choosing ``a`` remembers approval for
+            the remainder of this approver's lifetime.
+        """
+
         if self.mode == "deny":
             return False
         if self.allow_rest:
@@ -34,4 +45,3 @@ class CommandApprover:
             self.allow_rest = True
             return True
         return answer in {"y", "yes"}
-

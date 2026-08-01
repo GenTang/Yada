@@ -22,6 +22,19 @@ def search_code(
     file_glob: str | None = None,
     max_results: int = 80,
 ) -> dict[str, Any]:
+    """Search repository text with ripgrep and a bounded Python fallback.
+
+    Args:
+        context: Shared workspace boundary and output limit.
+        query: Regular expression understood by ripgrep/Python ``re``.
+        path: Workspace-relative file or directory to search.
+        file_glob: Optional include/exclude glob forwarded to the search backend.
+        max_results: Maximum matching lines returned to the model.
+
+    Returns:
+        A bounded, line-and-column-addressed observation.
+    """
+
     if not isinstance(query, str) or not query:
         raise ToolError("query must be a non-empty string")
     if not isinstance(max_results, int) or not 1 <= max_results <= 200:
@@ -60,6 +73,8 @@ def search_code(
             raise ToolError(f"rg failed: {result.stderr.strip()[:1000]}")
         lines = result.stdout.splitlines()[:max_results]
     else:
+        # The fallback keeps the core usable on minimal containers, while matching
+        # rg's safety properties by skipping protected, binary, and oversized files.
         lines = _python_search(context, query, target, file_glob, max_results)
     text, truncated = truncate_text("\n".join(lines), context.max_output_chars)
     return {
@@ -111,4 +126,3 @@ def _python_search(
                 if len(matches) >= max_results:
                     break
     return matches
-

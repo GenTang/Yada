@@ -8,6 +8,8 @@ from typing import Any, Protocol
 
 @dataclass(frozen=True)
 class Completion:
+    """Provider-neutral completion payload consumed by the agent loop."""
+
     message: dict[str, Any]
     usage: dict[str, Any]
     response_id: str | None = None
@@ -17,6 +19,8 @@ class Completion:
 
 
 class CompletionClient(Protocol):
+    """Structural interface implemented by model completion adapters."""
+
     model: str
 
     def complete(
@@ -24,5 +28,7 @@ class CompletionClient(Protocol):
         *,
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]],
-    ) -> Completion: ...
+    ) -> Completion:
+        """Return one assistant turn for the current conversation and tools."""
 
+        ...

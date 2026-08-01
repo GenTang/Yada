@@ -5,7 +5,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from yada.agents import Agent
+from yada.agents import Agent, Planner
 from yada.environments import CommandApprover
 from yada.models import Completion
 from yada.tools import ToolRunner
@@ -109,3 +109,35 @@ def test_offline_end_to_end_loop(tmp_path: Path) -> None:
     # DeepSeek requires the prior assistant reasoning_content on the next request.
     assert client.seen_messages[1][-2]["reasoning_content"] == "reasoning for read_file"
 
+
+def test_planner_rejects_finish_mixed_with_other_calls() -> None:
+    planner = Planner()
+    assistant_message = {
+        "role": "assistant",
+        "tool_calls": [
+            {"function": {"name": "run_command", "arguments": "{}"}},
+            {"function": {"name": "finish", "arguments": "{}"}},
+        ],
+    }
+
+    plan = planner.plan(assistant_message, consecutive_text_turns=2)
+
+    assert len(plan.tool_calls) == 2
+    assert plan.consecutive_text_turns == 0
+    assert plan.rejection_error == (
+        "finish must be the only tool call in its assistant turn"
+    )
+
+
+def test_planner_escalates_repeated_text_only_turns() -> None:
+    planner = Planner()
+
+    plan = planner.plan(
+        {"role": "assistant", "content": "I am done."},
+        consecutive_text_turns=2,
+    )
+
+    assert not plan.tool_calls
+    assert plan.consecutive_text_turns == 3
+    assert plan.display_text == "I am done."
+    assert "final reminder" in (plan.reminder or "")
