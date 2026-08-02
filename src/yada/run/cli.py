@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 
 from yada import __version__
@@ -13,6 +12,7 @@ from yada.agents import Agent
 from yada.models import DeepSeekAPIError, DeepSeekClient
 from yada.tools import ToolRunner
 from yada.traces import TraceWriter
+from yada.utils.naming import readable_run_name
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -65,7 +65,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--trace",
         type=Path,
-        help="JSONL trace path (default: WORKSPACE/.yada/runs/<timestamp>.jsonl).",
+        help=(
+            "JSONL trace path (default: "
+            "WORKSPACE/.yada/runs/<task>__<readable-UTC-time>.jsonl)."
+        ),
     )
     parser.add_argument(
         "--trace-reasoning",
@@ -120,7 +123,7 @@ def run_cli(argv: list[str] | None = None) -> int:
     if not api_key:
         parser.error("DEEPSEEK_API_KEY is not set")
 
-    trace_path = args.trace or _default_trace_path(workspace)
+    trace_path = args.trace or _default_trace_path(workspace, task)
     command_policy = "allow" if args.yes else args.command_policy
     agent = Agent(
         client=DeepSeekClient(
@@ -182,11 +185,8 @@ def run_cli(argv: list[str] | None = None) -> int:
     return 0 if result.finished else 2
 
 
-def _default_trace_path(workspace: Path) -> Path:
-    # Microseconds prevent two short runs launched in the same second from
-    # appending unrelated events to one file.
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
-    return workspace / ".yada" / "runs" / f"{timestamp}.jsonl"
+def _default_trace_path(workspace: Path, task: str) -> Path:
+    return workspace / ".yada" / "runs" / f"{readable_run_name(task)}.jsonl"
 
 
 def main() -> None:

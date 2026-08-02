@@ -158,9 +158,13 @@ uv run yada eval \
 Inspect a completed or interrupted run without manually scanning JSONL:
 
 ```bash
-uv run yada-trace .yada/runs/20260801T120000.000000Z.jsonl
-uv run yada-trace eval-results/<run>.artifacts/yada-trace.jsonl --step 8
-uv run yada-trace eval-results/<run>.artifacts/yada-trace.jsonl --verbose
+uv run yada-trace \
+  .yada/runs/fix-parser-edge-case__2026-08-02_12-26-26.123456Z.jsonl
+uv run yada-trace \
+  eval-results/pytest-dev__pytest-10051__2026-08-02_12-26-26.123456Z.artifacts/yada-trace.jsonl \
+  --step 8
+uv run yada-trace eval-results/<task>__<UTC-time>.artifacts/yada-trace.jsonl \
+  --verbose
 ```
 
 The report correlates model requests, tool-call IDs, errors, reminders, and the
@@ -225,7 +229,8 @@ tests/
 ├── evals/
 ├── models/
 ├── tools/
-└── traces/
+├── traces/
+└── utils/
 ```
 
 `Planner` owns conversation policy and validates the next action without I/O.

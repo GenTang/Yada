@@ -118,6 +118,13 @@ remain sensitive.
 
 ## Inspection recipes
 
+Default paths include a sanitized task name and a readable UTC timestamp. A
+direct run resembles
+`.yada/runs/fix-parser-boundary-issue__2026-08-02_12-26-26.123456Z.jsonl`.
+An evaluation stores its trace under a directory such as
+`eval-results/pytest-dev__pytest-10051__2026-08-02_12-26-26.123456Z.artifacts/`.
+Explicit `--trace`, `--output`, and `--artifact-dir` values are never renamed.
+
 Render a run summary or expand one step:
 
 ```bash
