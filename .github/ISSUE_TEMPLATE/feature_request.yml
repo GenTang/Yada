@@ -1,0 +1,44 @@
+name: 💡 Feature or Enhancement
+description: 建议一个新的功能、Tool 或架构改进 / Suggest a new feature or architectural improvement
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢提交建议！为了保持 Yada "足够小且致命" 的特性，请详细描述这个新功能的必要性。
+        Thanks for your interest in improving Yada! Please provide clear context.
+        
+  - type: textarea
+    id: problem
+    attributes:
+      label: 痛点与背景 (Is your feature request related to a problem?)
+      description: 清楚地描述遇到了什么问题。例如：“当读取超过 5 个文件时，上下文会爆炸...”
+      placeholder: I'm always frustrated when...
+    validations:
+      required: true
+      
+  - type: textarea
+    id: solution
+    attributes:
+      label: 期望的解决方案 / 架构设计 (Proposed Solution / Architecture)
+      description: 你期望 Yada 怎么做？如果是架构改动，请提供简单的思路。
+      placeholder: A clear and concise description of what you want to happen.
+    validations:
+      required: true
+      
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 考虑过的替代方案 (Alternatives Considered)
+      description: 有没有其他更轻量级的方式可以实现这个目标？
+      placeholder: Any other approaches or tools you've considered...
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: pr
+    attributes:
+      label: 贡献意向 (Contribution)
+      options:
+        - label: 我愿意为此提交一个 PR (I am willing to submit a PR to implement this)

@@ -20,13 +20,16 @@ classifiers = [
   "Programming Language :: Python :: 3.12",
   "Topic :: Software Development",
 ]
+# Intentional: the runtime uses urllib, dataclasses, pathlib, and other stdlib
+# modules. Heavy orchestration frameworks are neither direct nor transitive deps.
 dependencies = []
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0"]
+dev = ["pytest>=8.0", "ruff>=0.12"]
 
 [project.scripts]
 yada = "yada.run.cli:main"
+yada-trace = "yada.traces.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
