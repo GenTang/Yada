@@ -8,7 +8,7 @@ into a framework of abstractions.
 
 ```text
 run/cli.py
-    └── agents/default.py
+    ├── agents/default.py
         ├── agents/planning.py
         ├── agents/executor.py
         │   └── tools/runner.py
@@ -21,6 +21,10 @@ run/cli.py
         │       └── tools/finish.py
         ├── models/base.py ← models/deepseek.py
         └── traces/jsonl.py ← traces/report.py
+    └── evals/cli.py
+        └── evals/runner.py
+            ├── evals/benchmarks/{local,swebench}.py
+            └── evals/agents/{yada,command}.py
 ```
 
 - `agents/default.py`: coordinates state and the step limit; it owns no tool policy.
@@ -30,6 +34,7 @@ run/cli.py
 - `environments`: owns access to the local workspace and command approval.
 - `tools`: contains stateless handlers; `runner.py` composes shared tool state.
 - `traces`: records correlated append-only events and renders diagnostic timelines.
+- `evals`: composes benchmark preparation/grading with interchangeable agents.
 - `run`: parses user configuration and assembles the runtime.
 - `utils`: holds small mechanics shared by otherwise independent modules.
 

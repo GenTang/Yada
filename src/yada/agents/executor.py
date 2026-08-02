@@ -59,7 +59,6 @@ class Executor:
         Returns:
             One result per input call in the same order.
         """
-
         if rejection_error is not None:
             self.trace.write(
                 "protocol_violation",
@@ -161,7 +160,6 @@ class Executor:
 
 def tool_name(call: dict[str, Any]) -> str:
     """Return a normalized tool name from an OpenAI-compatible call object."""
-
     name = (call.get("function") or {}).get("name")
     return str(name) if name else "<missing>"
 

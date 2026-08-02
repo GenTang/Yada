@@ -30,7 +30,6 @@ class AgentResult:
         usage: Flattened token and provider usage counters.
         final_state: Git diff/status snapshot from the tool runner.
     """
-
     finished: bool
     steps: int
     summary: str
@@ -50,7 +49,6 @@ class Agent:
         planner: Optional policy replacement for tests or experiments.
         executor: Optional execution replacement for tests or experiments.
     """
-
     def __init__(
         self,
         *,
@@ -85,7 +83,6 @@ class Agent:
             ValueError: If ``task`` is empty.
             DeepSeekAPIError: Propagated from the configured completion client.
         """
-
         messages = self.planner.initial_messages(task)
         total_usage: dict[str, int] = {}
         self.trace.write(
@@ -207,7 +204,6 @@ class Agent:
 
 def _message_metrics(messages: list[dict[str, Any]]) -> dict[str, int]:
     """Return cheap context-growth signals without tokenizing provider payloads."""
-
     encoded = json.dumps(messages, ensure_ascii=False, default=str)
     return {
         "message_count": len(messages),
@@ -220,7 +216,6 @@ def _message_metrics(messages: list[dict[str, Any]]) -> dict[str, int]:
 
 def _merge_usage(total: dict[str, int], current: dict[str, Any]) -> None:
     """Flatten and add integer usage counters reported by the provider."""
-
     for key, value in current.items():
         if isinstance(value, int):
             total[key] = total.get(key, 0) + value

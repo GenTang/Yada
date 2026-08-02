@@ -11,6 +11,28 @@ Yada 有意保持克制：单 Agent 循环、独立的规划/执行边界、追�
 
 > 当前为 Alpha：离线 Agent 闭环已通过测试，但尚未宣称任何对比评测结果。
 
+## 通用评测
+
+Yada 内置了 Benchmark-neutral 的评测层。`EvalRunner` 将任意
+`BenchmarkAdapter` 与任意 `AgentAdapter` 组合起来；当前提供本地 JSON Manifest、
+SWE-bench、原生 Yada 和外部命令四个适配器。
+
+运行冻结的本地任务：
+
+```bash
+yada eval \
+  --benchmark local \
+  --manifest /path/to/task.local.json \
+  --agent yada \
+  --yes \
+  --output results/yada.json
+```
+
+运行 SWE-bench 时，Yada 只生成 Patch 和官方 `predictions.jsonl`，评分仍委托给
+`swebench.harness.run_evaluation` 的 Docker Harness。使用 `--grade-mode none` 可以
+只检查任务准备和预测文件，不会产生虚假的 resolved 结果。Manifest Schema、外部
+Agent 命令模板和公平比较约束见 [docs/evaluation.md](docs/evaluation.md)。
+
 ## 快速开始
 
 需要 Python 3.11+、Git 和 DeepSeek API Key。
@@ -122,10 +144,12 @@ src/yada/
 ├── environments/  # 工作区边界与命令审批
 ├── tools/         # 每个工具一个模块，以及小型分发器
 ├── traces/        # JSONL 轨迹记录与人类可读诊断报告
+├── evals/         # 通用 Runner、Benchmark 与 Agent 适配器
 ├── run/           # CLI 入口
 └── utils/         # 输出截断等通用逻辑
 tests/
 ├── agents/
+├── evals/
 ├── models/
 ├── tools/
 └── traces/

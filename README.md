@@ -13,6 +13,26 @@ Development and tests use pytest.
 > Alpha status: the offline agent loop is tested, but no comparative benchmark
 > result is claimed yet.
 
+## Generic evaluation
+
+Yada includes a benchmark-neutral evaluation layer. `EvalRunner` composes any
+`BenchmarkAdapter` with any `AgentAdapter`; the initial adapters cover local
+JSON manifests, SWE-bench, native Yada, and arbitrary external commands.
+
+```bash
+yada eval \
+  --benchmark local \
+  --manifest /path/to/task.local.json \
+  --agent yada \
+  --yes \
+  --output results/yada.json
+```
+
+For SWE-bench, Yada produces the patch and official `predictions.jsonl` while
+delegating the verdict to the Docker-based `swebench.harness.run_evaluation`.
+See [docs/evaluation.md](docs/evaluation.md) for manifests, external-agent
+templates, Docker prerequisites, and fair-comparison constraints.
+
 ## Why this exists
 
 General-purpose harnesses can run DeepSeek, but they are not necessarily shaped

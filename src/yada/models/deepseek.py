@@ -73,12 +73,15 @@ class DeepSeekClient:
             "model": self.model,
             "messages": messages,
             "tools": tools,
-            "tool_choice": "auto",
             "max_tokens": self.max_output_tokens,
             "thinking": {"type": "enabled" if self.thinking else "disabled"},
         }
         if self.thinking:
             payload["reasoning_effort"] = self.reasoning_effort
+        else:
+            # DeepSeek V4 thinking mode rejects tool_choice. Non-thinking mode
+            # accepts the ordinary OpenAI-compatible automatic selection value.
+            payload["tool_choice"] = "auto"
 
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         request = urllib.request.Request(

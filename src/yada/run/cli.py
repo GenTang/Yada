@@ -21,6 +21,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="yada",
         description="Yet Another DeepSeek Agent: a small DeepSeek-native coding agent.",
+        epilog="Use 'yada eval --help' to run reproducible benchmark evaluations.",
     )
     parser.add_argument("task", nargs="?", help="Coding task to complete.")
     parser.add_argument("--task-file", type=Path, help="Read the task from a UTF-8 file.")
@@ -86,8 +87,14 @@ def run_cli(argv: list[str] | None = None) -> int:
         API error, and ``130`` when interrupted by the user.
     """
 
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    if arguments[:1] == ["eval"]:
+        from yada.evals.cli import run_cli as run_eval_cli
+
+        return run_eval_cli(arguments[1:])
+
     parser = build_parser()
-    args = parser.parse_args(argv)
+    args = parser.parse_args(arguments)
     if bool(args.task) == bool(args.task_file):
         parser.error("provide exactly one of TASK or --task-file")
     if args.task_file:

@@ -21,7 +21,6 @@ ToolHandler = Callable[..., dict[str, Any]]
 
 class ToolRunner:
     """Own shared tool state and route model tool calls to small handlers."""
-
     def __init__(
         self,
         workspace: Path,
@@ -47,13 +46,11 @@ class ToolRunner:
     @property
     def workspace(self) -> Workspace:
         """Expose the workspace boundary used by all registered handlers."""
-
         return self.context.workspace
 
     @property
     def schemas(self) -> list[dict[str, Any]]:
         """Return the stable tool schemas sent with every model request."""
-
         return TOOL_SCHEMAS
 
     def execute(self, name: str, arguments: dict[str, Any]) -> ToolExecution:
@@ -67,7 +64,6 @@ class ToolRunner:
             A model-safe result. Expected tool and argument errors become
             ``{"ok": false, ...}`` observations instead of escaping the loop.
         """
-
         try:
             if name == "finish":
                 return finish(self.context, **arguments)
@@ -81,5 +77,4 @@ class ToolRunner:
 
     def final_state(self) -> dict[str, Any]:
         """Collect the bounded Git status and diff used in the final result."""
-
         return final_state(self.context)
