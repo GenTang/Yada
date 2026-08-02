@@ -13,7 +13,9 @@ def _source_repo(tmp_path: Path) -> tuple[Path, str]:
     source.mkdir()
     (source / "module.py").write_text("VALUE = 1\n", encoding="utf-8")
     subprocess.run(["git", "init", "-q"], cwd=source, check=True)
-    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=source, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"], cwd=source, check=True
+    )
     subprocess.run(["git", "config", "user.name", "Test"], cwd=source, check=True)
     subprocess.run(["git", "add", "module.py"], cwd=source, check=True)
     subprocess.run(["git", "commit", "-qm", "base"], cwd=source, check=True)
@@ -69,9 +71,7 @@ def test_swebench_task_hides_gold_data_and_writes_prediction(tmp_path: Path) -> 
     assert "test_patch" not in task.metadata
     assert "FAIL_TO_PASS" not in task.metadata
     assert grade.status == "skipped"
-    prediction = json.loads(
-        (tmp_path / "artifacts/predictions.jsonl").read_text()
-    )
+    prediction = json.loads((tmp_path / "artifacts/predictions.jsonl").read_text())
     assert prediction == {
         "instance_id": "owner__repo-1",
         "model_name_or_path": "test-agent/test-model",

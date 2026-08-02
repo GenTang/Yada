@@ -90,9 +90,7 @@ class CommandAgentAdapter:
         stderr_path.write_text(stderr, encoding="utf-8")
         workspace_patch = collect_git_patch(prepared.workspace)
         proposed_patch = (
-            output_patch.read_text(encoding="utf-8")
-            if output_patch.is_file()
-            else ""
+            output_patch.read_text(encoding="utf-8") if output_patch.is_file() else ""
         )
         patch_apply_error = ""
         output_patch_applied = False

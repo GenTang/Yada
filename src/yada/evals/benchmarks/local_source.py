@@ -41,9 +41,7 @@ def prepare_source(
         for argv in commands:
             result = _run(argv, source, timeout=600)
             if result.returncode:
-                raise RuntimeError(
-                    result.stderr.strip() or f"failed command: {argv}"
-                )
+                raise RuntimeError(result.stderr.strip() or f"failed command: {argv}")
     if not (source / ".git").exists():
         raise ValueError(f"benchmark cache is not a Git repository: {source}")
     remote = _run(["git", "remote", "get-url", "origin"], source)
@@ -102,8 +100,10 @@ def _required_string(mapping: dict[str, Any], key: str) -> str:
 
 def _safe_cache_key(value: str) -> Path:
     key = Path(value)
-    if key.is_absolute() or not key.parts or any(
-        part in {"", ".", ".."} for part in key.parts
+    if (
+        key.is_absolute()
+        or not key.parts
+        or any(part in {"", ".", ".."} for part in key.parts)
     ):
         raise ValueError("workspace cache_key must be a safe relative path")
     return key
@@ -124,4 +124,3 @@ def _run(
         timeout=timeout,
         check=False,
     )
-

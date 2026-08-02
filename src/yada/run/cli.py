@@ -24,7 +24,9 @@ def build_parser() -> argparse.ArgumentParser:
         epilog="Use 'yada eval --help' to run reproducible benchmark evaluations.",
     )
     parser.add_argument("task", nargs="?", help="Coding task to complete.")
-    parser.add_argument("--task-file", type=Path, help="Read the task from a UTF-8 file.")
+    parser.add_argument(
+        "--task-file", type=Path, help="Read the task from a UTF-8 file."
+    )
     parser.add_argument(
         "--workspace",
         type=Path,
@@ -41,9 +43,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
         help="DeepSeek API base URL.",
     )
-    parser.add_argument(
-        "--reasoning-effort", choices=["high", "max"], default="max"
-    )
+    parser.add_argument("--reasoning-effort", choices=["high", "max"], default="max")
     parser.add_argument(
         "--thinking", action=argparse.BooleanOptionalAction, default=True
     )
@@ -143,7 +143,9 @@ def run_cli(argv: list[str] | None = None) -> int:
     )
     print(f"Trace: {trace_path}")
     if command_policy == "allow":
-        print("WARNING: command execution is autonomous; use a container for untrusted repos.")
+        print(
+            "WARNING: command execution is autonomous; use a container for untrusted repos."
+        )
 
     try:
         result = agent.run(task)

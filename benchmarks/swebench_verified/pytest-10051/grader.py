@@ -10,7 +10,6 @@ import sys
 import tempfile
 from pathlib import Path
 
-
 BASE_COMMIT = "aa55975c7d3f6c9f6d7f68accc41bb7cadf0eb9a"
 FAIL_TO_PASS = "testing/logging/test_fixture.py::test_clear_for_call_stage"
 PASS_TO_PASS = (
@@ -97,4 +96,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

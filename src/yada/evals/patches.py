@@ -29,9 +29,7 @@ def collect_git_patch(workspace: Path) -> str:
         root,
     )
     if untracked.returncode:
-        raise PatchCollectionError(
-            untracked.stderr.strip() or "git ls-files failed"
-        )
+        raise PatchCollectionError(untracked.stderr.strip() or "git ls-files failed")
 
     patches = [tracked.stdout]
     for relative in filter(None, untracked.stdout.split("\0")):

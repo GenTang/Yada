@@ -128,7 +128,9 @@ def _parse_patch_paths(context: ToolContext, patch: str) -> set[str]:
         )
         touched.add(normalized)
     if not touched:
-        raise ToolError("patch must contain at least one 'diff --git a/... b/...' header")
+        raise ToolError(
+            "patch must contain at least one 'diff --git a/... b/...' header"
+        )
     return touched
 
 

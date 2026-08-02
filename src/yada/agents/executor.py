@@ -88,9 +88,7 @@ class Executor:
         self._trace_result(step, call_id, name, execution, duration_ms=0)
         return ExecutedToolCall(call_id, name, execution, 0)
 
-    def _execute_tool_call(
-        self, step: int, call: dict[str, Any]
-    ) -> ExecutedToolCall:
+    def _execute_tool_call(self, step: int, call: dict[str, Any]) -> ExecutedToolCall:
         call_id = _tool_call_id(call, step)
         name = tool_name(call)
         raw_arguments = (call.get("function") or {}).get("arguments", "{}")

@@ -13,7 +13,6 @@ from yada.exceptions import ToolError
 from yada.tools.base import ToolContext
 from yada.utils.text import timeout_text, truncate_text
 
-
 ALLOWED_EXECUTABLES = {
     "bash",
     "cargo",
@@ -82,10 +81,10 @@ def run_command(
             f"executable is not allowed: {executable}; allowed={sorted(ALLOWED_EXECUTABLES)}"
         )
     if executable in {"bash", "sh"} and "-c" in argv[1:]:
-        raise ToolError("shell -c is disabled; pass a script path and arguments instead")
-    if executable == "git" and (
-        len(argv) < 2 or argv[1] not in SAFE_GIT_SUBCOMMANDS
-    ):
+        raise ToolError(
+            "shell -c is disabled; pass a script path and arguments instead"
+        )
+    if executable == "git" and (len(argv) < 2 or argv[1] not in SAFE_GIT_SUBCOMMANDS):
         raise ToolError(
             f"only read-only git subcommands are allowed: {sorted(SAFE_GIT_SUBCOMMANDS)}"
         )

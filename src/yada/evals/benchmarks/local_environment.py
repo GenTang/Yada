@@ -76,8 +76,7 @@ def prepare_environment(
         error = ""
     else:
         raise ValueError(
-            "environment install_workspace must be false, editable, "
-            "or legacy-editable"
+            "environment install_workspace must be false, editable, or legacy-editable"
         )
     if install is not None and install.returncode:
         raise RuntimeError(install.stderr.strip() or error)
@@ -140,4 +139,3 @@ def _run(
         timeout=timeout,
         check=False,
     )
-

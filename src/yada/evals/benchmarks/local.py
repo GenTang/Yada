@@ -79,9 +79,7 @@ class LocalBenchmark:
                 raise ValueError(f"cannot read task file: {exc}") from exc
             public_metadata: dict[str, Any] = {}
         elif instance_file_value:
-            instance_file = self._path(
-                _required_string(self.manifest, "instance_file")
-            )
+            instance_file = self._path(_required_string(self.manifest, "instance_file"))
             row = _load_instance_file(instance_file)
             row_id = _required_string(row, "instance_id")
             if row_id != manifest_id:

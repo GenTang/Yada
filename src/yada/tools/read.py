@@ -44,8 +44,7 @@ def read_file(
     lines = text.splitlines()
     selected = lines[start_line - 1 : end_line]
     numbered = "\n".join(
-        f"{number:>6}|{line}"
-        for number, line in enumerate(selected, start=start_line)
+        f"{number:>6}|{line}" for number, line in enumerate(selected, start=start_line)
     )
     return {
         "path": context.workspace.display(file_path),

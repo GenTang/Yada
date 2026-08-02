@@ -15,7 +15,9 @@ def test_local_manifest_runs_agent_in_copy_and_external_grader(tmp_path: Path) -
     source.mkdir()
     (source / "app.py").write_text("value = 'broken'\n", encoding="utf-8")
     subprocess.run(["git", "init", "-q"], cwd=source, check=True)
-    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=source, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"], cwd=source, check=True
+    )
     subprocess.run(["git", "config", "user.name", "Test"], cwd=source, check=True)
     subprocess.run(["git", "add", "app.py"], cwd=source, check=True)
     subprocess.run(["git", "commit", "-qm", "base"], cwd=source, check=True)
@@ -124,7 +126,9 @@ def test_local_manifest_bootstraps_exact_git_commit_into_cache(tmp_path: Path) -
     source.mkdir()
     (source / "module.py").write_text("VALUE = 1\n", encoding="utf-8")
     subprocess.run(["git", "init", "-q"], cwd=source, check=True)
-    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=source, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"], cwd=source, check=True
+    )
     subprocess.run(["git", "config", "user.name", "Test"], cwd=source, check=True)
     subprocess.run(["git", "add", "module.py"], cwd=source, check=True)
     subprocess.run(["git", "commit", "-qm", "base"], cwd=source, check=True)

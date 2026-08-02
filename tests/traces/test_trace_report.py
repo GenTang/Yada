@@ -22,9 +22,7 @@ def test_trace_events_have_correlation_metadata_and_redaction(tmp_path: Path) ->
             "finish_reason": "stop",
         },
     )
-    trace.write(
-        "run_end", {"finished": False, "steps": 1, "summary": "step limit"}
-    )
+    trace.write("run_end", {"finished": False, "steps": 1, "summary": "step limit"})
 
     events = [json.loads(line) for line in path.read_text().splitlines()]
     assert [event["sequence"] for event in events] == [1, 2, 3]

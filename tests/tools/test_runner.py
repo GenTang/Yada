@@ -5,7 +5,6 @@ from pathlib import Path
 from yada.environments import CommandApprover
 from yada.tools import ToolRunner
 
-
 PATCH = """diff --git a/app.py b/app.py
 --- a/app.py
 +++ b/app.py
@@ -34,9 +33,7 @@ def test_read_and_hash_checked_patch(
         "apply_patch",
         {
             "patch": PATCH,
-            "expected_files": [
-                {"path": "app.py", "sha256": read.data["sha256"]}
-            ],
+            "expected_files": [{"path": "app.py", "sha256": read.data["sha256"]}],
         },
     )
 

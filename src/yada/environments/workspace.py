@@ -7,7 +7,6 @@ from pathlib import Path
 
 from yada.exceptions import ToolError
 
-
 PROTECTED_PARTS = {".git", ".yada"}
 
 

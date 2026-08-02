@@ -111,9 +111,7 @@ def render_trace_report(path: Path) -> str:
     for fallback_sequence, event in enumerate(events, 1):
         sequence = event.get("sequence", fallback_sequence)
         elapsed = event.get("elapsed_ms", "?")
-        lines.append(
-            f"  [{sequence!s:>3} +{elapsed!s:>6}ms] {_describe_event(event)}"
-        )
+        lines.append(f"  [{sequence!s:>3} +{elapsed!s:>6}ms] {_describe_event(event)}")
     return "\n".join(lines) + "\n"
 
 

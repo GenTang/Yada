@@ -38,9 +38,13 @@ class CommandApprover:
         if self.allow_rest:
             return True
         rendered = shlex.join(argv)
-        answer = self.input_fn(
-            f"\nYada wants to run in {cwd}:\n  {rendered}\nAllow? [y/N/a=allow rest] "
-        ).strip().lower()
+        answer = (
+            self.input_fn(
+                f"\nYada wants to run in {cwd}:\n  {rendered}\nAllow? [y/N/a=allow rest] "
+            )
+            .strip()
+            .lower()
+        )
         if answer == "a":
             self.allow_rest = True
             return True

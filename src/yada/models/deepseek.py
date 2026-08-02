@@ -130,7 +130,9 @@ class DeepSeekClient:
                 ) as response:
                     data = json.loads(response.read().decode("utf-8"))
                     if not isinstance(data, dict):
-                        raise DeepSeekAPIError("DeepSeek returned a non-object JSON body")
+                        raise DeepSeekAPIError(
+                            "DeepSeek returned a non-object JSON body"
+                        )
                     return data
             except urllib.error.HTTPError as exc:
                 error_body = exc.read().decode("utf-8", errors="replace")[:2000]

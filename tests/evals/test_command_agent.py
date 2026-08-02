@@ -13,7 +13,9 @@ def test_command_agent_applies_patch_only_output(tmp_path: Path) -> None:
     workspace.mkdir()
     (workspace / "value.py").write_text("VALUE = 1\n", encoding="utf-8")
     subprocess.run(["git", "init", "-q"], cwd=workspace, check=True)
-    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=workspace, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"], cwd=workspace, check=True
+    )
     subprocess.run(["git", "config", "user.name", "Test"], cwd=workspace, check=True)
     subprocess.run(["git", "add", "value.py"], cwd=workspace, check=True)
     subprocess.run(["git", "commit", "-qm", "base"], cwd=workspace, check=True)
@@ -51,7 +53,9 @@ def test_command_agent_receives_prepared_task_environment(tmp_path: Path) -> Non
     workspace.mkdir()
     (workspace / "value.py").write_text("VALUE = 1\n", encoding="utf-8")
     subprocess.run(["git", "init", "-q"], cwd=workspace, check=True)
-    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=workspace, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"], cwd=workspace, check=True
+    )
     subprocess.run(["git", "config", "user.name", "Test"], cwd=workspace, check=True)
     subprocess.run(["git", "add", "value.py"], cwd=workspace, check=True)
     subprocess.run(["git", "commit", "-qm", "base"], cwd=workspace, check=True)

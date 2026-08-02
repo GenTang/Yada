@@ -30,4 +30,6 @@ def timeout_text(value: str | bytes | None) -> str:
 
     if value is None:
         return ""
-    return value.decode("utf-8", errors="replace") if isinstance(value, bytes) else value
+    return (
+        value.decode("utf-8", errors="replace") if isinstance(value, bytes) else value
+    )

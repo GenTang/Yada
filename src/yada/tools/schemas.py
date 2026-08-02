@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-
 TOOL_SCHEMAS: list[dict[str, Any]] = [
     {
         "type": "function",
@@ -115,4 +114,3 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         },
     },
 ]
-
