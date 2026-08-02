@@ -69,19 +69,7 @@ class DeepSeekClient:
             DeepSeekAPIError: If transport retries fail or the response is malformed.
         """
 
-        payload: dict[str, Any] = {
-            "model": self.model,
-            "messages": messages,
-            "tools": tools,
-            "max_tokens": self.max_output_tokens,
-            "thinking": {"type": "enabled" if self.thinking else "disabled"},
-        }
-        if self.thinking:
-            payload["reasoning_effort"] = self.reasoning_effort
-        else:
-            # DeepSeek V4 thinking mode rejects tool_choice. Non-thinking mode
-            # accepts the ordinary OpenAI-compatible automatic selection value.
-            payload["tool_choice"] = "auto"
+        payload = self.request_payload(messages=messages, tools=tools)
 
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         request = urllib.request.Request(
@@ -120,6 +108,42 @@ class DeepSeekClient:
             system_fingerprint=response_data.get("system_fingerprint"),
             finish_reason=choice.get("finish_reason"),
         )
+
+    def request_payload(
+        self,
+        *,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Build the exact JSON body used by ``complete`` for tracing parity."""
+
+        payload: dict[str, Any] = {
+            "model": self.model,
+            "messages": messages,
+            "tools": tools,
+            "max_tokens": self.max_output_tokens,
+            "thinking": {"type": "enabled" if self.thinking else "disabled"},
+        }
+        if self.thinking:
+            payload["reasoning_effort"] = self.reasoning_effort
+        else:
+            # DeepSeek V4 thinking mode rejects tool_choice. Non-thinking mode
+            # accepts the ordinary OpenAI-compatible automatic selection value.
+            payload["tool_choice"] = "auto"
+        return payload
+
+    def trace_config(self) -> dict[str, Any]:
+        """Return model settings safe to persist in ``run_start``."""
+
+        return {
+            "provider": "deepseek",
+            "model": self.model,
+            "thinking": self.thinking,
+            "reasoning_effort": self.reasoning_effort if self.thinking else None,
+            "max_output_tokens": self.max_output_tokens,
+            "timeout_seconds": self.timeout_seconds,
+            "max_retries": self.max_retries,
+        }
 
     def _send_with_retries(self, request: urllib.request.Request) -> dict[str, Any]:
         last_error: Exception | None = None

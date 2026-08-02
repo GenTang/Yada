@@ -107,6 +107,9 @@ benchmark uses uv.
 ## Agent adapters
 
 The native adapter constructs Yada in process and records a normal JSONL trace.
+Use `--trace-level debug` to capture sanitized provider payloads for replayable
+step inspection, then use `yada-trace PATH --step N` or `--verbose` to expand it.
+The default `summary` level keeps request storage compact.
 It respects step and output-token budgets. A deployment-level container or
 process supervisor should enforce the hard wall-time limit.
 

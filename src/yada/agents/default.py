@@ -17,6 +17,7 @@ from yada.agents.planning import Planner
 from yada.models import CompletionClient
 from yada.tools import ToolRunner
 from yada.traces import TraceWriter
+from yada.traces.provenance import client_trace_config, collect_provenance
 
 
 @dataclass(frozen=True)
@@ -49,6 +50,7 @@ class Agent:
         emit: Function used for concise interactive output.
         planner: Optional policy replacement for tests or experiments.
         executor: Optional execution replacement for tests or experiments.
+        trace_metadata: Optional benchmark or caller metadata added to provenance.
     """
 
     def __init__(
@@ -61,6 +63,7 @@ class Agent:
         emit: Callable[[str], None] = print,
         planner: Planner | None = None,
         executor: Executor | None = None,
+        trace_metadata: dict[str, Any] | None = None,
     ) -> None:
         if max_steps < 1:
             raise ValueError("max_steps must be positive")
@@ -71,6 +74,7 @@ class Agent:
         self.emit = emit
         self.planner = planner or Planner()
         self.executor = executor or Executor(tools=tools, trace=trace, emit=emit)
+        self.trace_metadata = dict(trace_metadata or {})
 
     def run(self, task: str) -> AgentResult:
         """Run a coding task until verified completion or the step limit.
@@ -95,6 +99,12 @@ class Agent:
                 "task": task,
                 "workspace": str(self.tools.workspace.root),
                 "max_steps": self.max_steps,
+                "trace_level": self.trace.level,
+                "model_config": client_trace_config(self.client),
+                "provenance": collect_provenance(
+                    self.tools.workspace.root,
+                    extra=self.trace_metadata,
+                ),
             },
         )
 
@@ -102,9 +112,27 @@ class Agent:
         for step in range(1, self.max_steps + 1):
             self.emit(f"\n[{step}/{self.max_steps}] Asking DeepSeek...")
             context_metrics = _message_metrics(messages)
+            request_id = f"{self.trace.run_id}:model:{step}"
+            request_record: dict[str, Any] = {
+                "step": step,
+                "request_id": request_id,
+                "context": context_metrics,
+            }
+            if self.trace.level == "debug":
+                request_record["payload"] = _model_request_payload(
+                    self.client,
+                    messages,
+                    self.tools.schemas,
+                )
+                request_record["capture"] = {
+                    "reasoning": (
+                        "included" if self.trace.include_reasoning else "redacted"
+                    ),
+                    "secrets": "redacted",
+                }
             self.trace.write(
                 "model_request",
-                {"step": step, "context": context_metrics},
+                request_record,
             )
             started = time.monotonic()
             try:
@@ -118,6 +146,7 @@ class Agent:
                     "model_error",
                     {
                         "step": step,
+                        "request_id": request_id,
                         "duration_ms": round((time.monotonic() - started) * 1000),
                         "error_type": type(exc).__name__,
                         "error": str(exc),
@@ -132,6 +161,7 @@ class Agent:
                 "assistant",
                 {
                     "step": step,
+                    "request_id": request_id,
                     "duration_ms": duration_ms,
                     "request_context": context_metrics,
                     "message": assistant_message,
@@ -215,6 +245,26 @@ def _message_metrics(messages: list[dict[str, Any]]) -> dict[str, int]:
         "tool_result_count": sum(
             1 for message in messages if message.get("role") == "tool"
         ),
+    }
+
+
+def _model_request_payload(
+    client: CompletionClient,
+    messages: list[dict[str, Any]],
+    tools: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Return the provider payload, with a model-neutral fallback for test clients."""
+
+    builder = getattr(client, "request_payload", None)
+    if callable(builder):
+        payload = builder(messages=messages, tools=tools)
+        if not isinstance(payload, dict):
+            raise TypeError("completion client request_payload must return an object")
+        return payload
+    return {
+        "model": getattr(client, "model", "unknown"),
+        "messages": messages,
+        "tools": tools,
     }
 
 

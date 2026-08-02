@@ -138,21 +138,37 @@ Tools:
 - `finish`: rejected until a test or build succeeds after the latest patch.
 
 DeepSeek thinking-mode `reasoning_content` is retained in memory and passed back
-after tool calls, as required by the API. JSONL traces redact the reasoning text
-by default while retaining its length and hash. Each event includes a schema
-version, run ID, sequence, and elapsed time; model context growth and tool-call
-latency are recorded as explicit events. Use `--trace-reasoning` only if you
-intentionally want to store raw reasoning.
+after tool calls, as required by the API. The default `--trace-level summary`
+records compact context metrics. `--trace-level debug` additionally records the
+complete sanitized provider payload for every model turn. JSONL traces redact
+reasoning text by default while retaining its length and hash, and also redact
+common API keys, authorization values, tokens, passwords, and secrets. Use
+`--trace-reasoning` only if you intentionally want to store raw reasoning.
+
+Capture a replayable debug trace during an evaluation:
+
+```bash
+uv run yada eval \
+  --case benchmarks/swebench_verified/pytest-10051 \
+  --agent yada \
+  --yes \
+  --trace-level debug
+```
 
 Inspect a completed or interrupted run without manually scanning JSONL:
 
 ```bash
 uv run yada-trace .yada/runs/20260801T120000.000000Z.jsonl
+uv run yada-trace eval-results/<run>.artifacts/yada-trace.jsonl --step 8
+uv run yada-trace eval-results/<run>.artifacts/yada-trace.jsonl --verbose
 ```
 
 The report correlates model requests, tool-call IDs, errors, reminders, and the
-final verification state into a compact timeline. The source JSONL remains the
-durable, streaming-friendly record.
+final verification state into a compact timeline. `--step` and `--verbose`
+expand sanitized model messages, tool arguments, patches, stdout, and stderr.
+The source JSONL remains the durable, streaming-friendly record. Debug traces can
+contain source code and test output even after secret redaction, so handle them as
+sensitive artifacts.
 
 ## Safety model
 

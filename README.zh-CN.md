@@ -97,18 +97,33 @@ DeepSeek 工具调用
 - `finish`：最新修改后没有成功测试或构建时直接拒绝。
 
 DeepSeek 思考模式要求工具轮次继续回传 `reasoning_content`。Yada 会在内存中
-保留并正确回传，但 JSONL 轨迹默认只记录长度和 Hash；每个事件还带有
-`schema_version`、`run_id`、严格递增序号与累计耗时，并记录上下文增长、
-模型错误和工具耗时。只有显式使用 `--trace-reasoning` 才会落盘完整推理。
+保留并正确回传。默认的 `--trace-level summary` 只记录紧凑的上下文指标；
+`--trace-level debug` 还会保存每轮模型请求的完整脱敏 provider payload。
+JSONL 默认只保留 reasoning 的长度和 Hash，并脱敏常见 API key、
+Authorization、token、password 和 secret。只有显式使用
+`--trace-reasoning` 才会落盘完整推理。
+
+在评测中生成可还原的 debug trace：
+
+```bash
+uv run yada eval \
+  --case benchmarks/swebench_verified/pytest-10051 \
+  --agent yada \
+  --yes \
+  --trace-level debug
+```
 
 无需手工翻阅 JSONL，可以直接生成关联后的诊断时间线：
 
 ```bash
 uv run yada-trace .yada/runs/20260801T120000.000000Z.jsonl
+uv run yada-trace eval-results/<run>.artifacts/yada-trace.jsonl --step 8
+uv run yada-trace eval-results/<run>.artifacts/yada-trace.jsonl --verbose
 ```
 
-报告会汇总模型轮次、工具调用 ID、失败、协议提醒和最终验证状态；JSONL 仍然是
-可流式写入、崩溃后可恢复检查的原始记录。
+报告会汇总模型轮次、工具调用 ID、失败、协议提醒和最终验证状态。
+`--step` 和 `--verbose` 会展开脱敏后的模型消息、工具参数、Patch、stdout 和
+stderr。Debug trace 脱敏后仍可能包含源码和测试输出，应当作敏感 artifact 处理。
 
 ## 安全边界
 
