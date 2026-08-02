@@ -157,20 +157,25 @@ class Agent:
             _merge_usage(total_usage, completion.usage)
             assistant_message = completion.message
             messages.append(assistant_message)
+            assistant_record = {
+                "step": step,
+                "request_id": request_id,
+                "duration_ms": duration_ms,
+                "request_context": context_metrics,
+                "message": assistant_message,
+                "usage": completion.usage,
+                "response_id": completion.response_id,
+                "model": completion.model,
+                "system_fingerprint": completion.system_fingerprint,
+                "finish_reason": completion.finish_reason,
+            }
+            if completion.message_field_presence is not None:
+                assistant_record["message_field_presence"] = (
+                    completion.message_field_presence
+                )
             self.trace.write(
                 "assistant",
-                {
-                    "step": step,
-                    "request_id": request_id,
-                    "duration_ms": duration_ms,
-                    "request_context": context_metrics,
-                    "message": assistant_message,
-                    "usage": completion.usage,
-                    "response_id": completion.response_id,
-                    "model": completion.model,
-                    "system_fingerprint": completion.system_fingerprint,
-                    "finish_reason": completion.finish_reason,
-                },
+                assistant_record,
             )
 
             plan = self.planner.plan(

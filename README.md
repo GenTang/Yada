@@ -168,7 +168,8 @@ final verification state into a compact timeline. `--step` and `--verbose`
 expand sanitized model messages, tool arguments, patches, stdout, and stderr.
 The source JSONL remains the durable, streaming-friendly record. Debug traces can
 contain source code and test output even after secret redaction, so handle them as
-sensitive artifacts.
+sensitive artifacts. See [docs/tracing.md](docs/tracing.md) for the event
+reference, field-presence semantics, lifecycle, and `jq` recipes.
 
 ## Safety model
 
@@ -246,8 +247,8 @@ and DeepSeek's official [thinking-mode](https://api-docs.deepseek.com/guides/thi
 and [tool-call](https://api-docs.deepseek.com/guides/tool_calls) contracts. The
 implementation is original and intentionally smaller than those systems.
 
-See [docs/architecture.md](docs/architecture.md) for the detailed contracts and planned
-ablations.
+See [docs/architecture.md](docs/architecture.md) for the detailed contracts and
+planned ablations, and [docs/tracing.md](docs/tracing.md) for the trace schema.
 
 ## Current non-goals
 
