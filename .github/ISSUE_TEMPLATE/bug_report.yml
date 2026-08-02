@@ -3,25 +3,11 @@ description: 报告可复现的错误或回归 / Report a reproducible defect or
 title: "[Bug]: "
 labels: ["bug"]
 body:
-  - type: markdown
-    attributes:
-      value: |
-        感谢帮助改进 Yada。请删除 API key、Authorization header 和其他 secrets 后再粘贴日志或 trace。
-        Thanks for helping improve Yada. Remove API keys, authorization headers, and other secrets before sharing logs or traces.
-
-  - type: checkboxes
-    id: existing-issues
-    attributes:
-      label: 已有 Issue / Existing Issues
-      options:
-        - label: 我已搜索过现有 issues，没有找到重复项。 / I searched existing issues and found no duplicate.
-          required: true
-
   - type: textarea
-    id: summary
+    id: problem
     attributes:
-      label: 问题摘要 / Bug Summary
-      description: 简洁描述实际发生了什么。
+      label: 发生了什么？ / What Happened?
+      description: 请简洁描述实际行为和问题影响。
       placeholder: What went wrong?
     validations:
       required: true
@@ -29,21 +15,12 @@ body:
   - type: textarea
     id: reproduction
     attributes:
-      label: 复现步骤 / Steps to Reproduce
-      description: 提供最小任务、workspace 状态和稳定复现问题的步骤。
+      label: 如何复现？ / How to Reproduce?
+      description: 请提供最小复现步骤和完整命令；必要时包含 Yada 版本、OS、Python、uv 和 model。
       placeholder: |
         1. Prepare...
         2. Run...
         3. Observe...
-    validations:
-      required: true
-
-  - type: textarea
-    id: command
-    attributes:
-      label: 完整命令 / Command
-      description: 粘贴已脱敏的完整 Yada 命令。
-      render: shell
     validations:
       required: true
 
@@ -53,43 +30,12 @@ body:
       label: 预期行为 / Expected Behavior
       description: Yada 应该做什么？
     validations:
-      required: true
-
-  - type: textarea
-    id: actual
-    attributes:
-      label: 实际行为 / Actual Behavior
-      description: Yada 实际做了什么？请包含 exit code 或错误摘要。
-    validations:
-      required: true
-
-  - type: textarea
-    id: environment
-    attributes:
-      label: 环境 / Environment
-      description: 请包含 Yada commit/version、OS、Python、uv、model 和 container 信息。
-      placeholder: |
-        - Yada commit/version:
-        - OS:
-        - Python:
-        - uv:
-        - Model:
-        - Container/runtime:
-    validations:
-      required: true
-
-  - type: textarea
-    id: logs
-    attributes:
-      label: 日志与 Trace / Logs and Trace
-      description: 粘贴相关的已脱敏输出，或提供可访问的 trace artifact 链接。
-      render: text
-    validations:
       required: false
 
-  - type: checkboxes
-    id: contribution
+  - type: textarea
+    id: context
     attributes:
-      label: 贡献意向 / Contribution
-      options:
-        - label: 我愿意为此提交 PR。 / I am willing to submit a PR for this.
+      label: 其他信息 / Additional Context or Trace
+      description: 可选填写已脱敏的日志、trace 或截图。请勿包含 API key、Authorization header 或其他 secrets。
+    validations:
+      required: false
