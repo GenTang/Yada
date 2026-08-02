@@ -22,7 +22,15 @@ def build_parser() -> argparse.ArgumentParser:
         prog="yada eval",
         description="Run one coding agent against one reproducible benchmark task.",
     )
-    parser.add_argument("--benchmark", choices=["local", "swebench"], required=True)
+    parser.add_argument("--benchmark", choices=["local", "swebench"])
+    parser.add_argument(
+        "--case",
+        type=Path,
+        help=(
+            "Portable local benchmark case directory or case.json. Implies "
+            "--benchmark local."
+        ),
+    )
     parser.add_argument("--instance", help="Benchmark instance ID.")
     parser.add_argument("--agent", choices=["yada", "command"], default="yada")
     parser.add_argument(
@@ -78,11 +86,17 @@ def build_parser() -> argparse.ArgumentParser:
 
     local = parser.add_argument_group("local benchmark")
     local.add_argument("--manifest", type=Path)
+    local.add_argument(
+        "--cache-dir",
+        type=Path,
+        default=Path(".yada/cache/evals"),
+        help="Git checkout cache used by portable local cases.",
+    )
 
     swebench = parser.add_argument_group("SWE-bench")
     swebench.add_argument(
         "--dataset-name",
-        default="SWE-bench/SWE-bench_Verified",
+        default="princeton-nlp/SWE-bench_Verified",
     )
     swebench.add_argument("--split", default="test")
     swebench.add_argument("--instance-file", type=Path)
@@ -120,12 +134,26 @@ def run_cli(argv: list[str] | None = None) -> int:
         else output_path.with_suffix("").with_name(output_path.stem + ".artifacts")
     )
 
-    if args.benchmark == "local":
+    if args.case is not None:
+        if args.benchmark not in {None, "local"}:
+            parser.error("--case can only be used with --benchmark local")
+        if args.manifest is not None:
+            parser.error("--case and --manifest are mutually exclusive")
+        case_path = args.case.expanduser().resolve()
+        manifest_path = case_path / "case.json" if case_path.is_dir() else case_path
+        if not manifest_path.is_file():
+            parser.error(f"benchmark case does not exist: {manifest_path}")
+        benchmark = LocalBenchmark(
+            manifest_path,
+            cache_root=args.cache_dir,
+        )
+        instance_id = args.instance or ""
+    elif args.benchmark == "local":
         if args.manifest is None:
             parser.error("--manifest is required for --benchmark local")
-        benchmark = LocalBenchmark(args.manifest)
+        benchmark = LocalBenchmark(args.manifest, cache_root=args.cache_dir)
         instance_id = args.instance or ""
-    else:
+    elif args.benchmark == "swebench":
         if not args.instance:
             parser.error("--instance is required for --benchmark swebench")
         namespace = None if args.namespace.lower() == "none" else args.namespace
@@ -142,6 +170,8 @@ def run_cli(argv: list[str] | None = None) -> int:
             grade_timeout_seconds=args.grade_timeout,
         )
         instance_id = args.instance
+    else:
+        parser.error("provide --case or --benchmark")
 
     if args.agent == "yada":
         api_key = os.environ.get("DEEPSEEK_API_KEY", "")

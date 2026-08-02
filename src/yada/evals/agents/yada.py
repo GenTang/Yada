@@ -73,6 +73,7 @@ class YadaAgentAdapter:
             prepared.workspace,
             approver=CommandApprover(self.command_policy),
             command_timeout_seconds=self.command_timeout_seconds,
+            command_environment=_task_environment(prepared),
         )
         agent = Agent(
             client=client,
@@ -109,3 +110,14 @@ class YadaAgentAdapter:
             trace_path=str(trace_path),
             details=details,
         )
+
+
+def _task_environment(prepared: PreparedTask) -> dict[str, str]:
+    value = prepared.metadata.get("environment", {})
+    if not isinstance(value, dict):
+        return {}
+    return {
+        str(key): str(item)
+        for key, item in value.items()
+        if isinstance(key, str) and isinstance(item, str)
+    }

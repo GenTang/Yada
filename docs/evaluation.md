@@ -54,6 +54,56 @@ grader runs only after the agent exits. Its return code means:
 
 The grader command may use `{workspace}`, `{patch}`, `{run_dir}`, and `{run_id}`.
 
+### Portable cases
+
+`--case DIRECTORY` is shorthand for a local `DIRECTORY/case.json`. Unlike a
+machine-local fixture, a portable case can declare a Git source and a locked uv
+environment:
+
+```json
+{
+  "schema_version": 1,
+  "instance_id": "owner__repo-1",
+  "instance_file": "instance.json",
+  "workspace": {
+    "type": "git",
+    "url": "https://github.com/owner/repo.git",
+    "cache_key": "verified/owner__repo-1"
+  },
+  "base_commit": "0123456789abcdef",
+  "environment": {
+    "type": "uv",
+    "project": ".",
+    "install_workspace": "editable",
+    "pythonpath": ["src"]
+  },
+  "grader": {
+    "argv": [".venv/bin/python", "grader.py", "{workspace}"]
+  }
+}
+```
+
+The Git checkout is cached under `--cache-dir` (default
+`.yada/cache/evals`) and never used directly as the agent workspace. `uv sync
+--locked` prepares the case environment. `install_workspace` supports modern
+`editable` projects and `legacy-editable` projects that predate PEP 660.
+`pythonpath` entries are resolved inside the fresh agent workspace. This makes
+the Agent's own test commands and the external grader use the same locked
+dependencies while exercising the modified source.
+
+The committed pytest development case runs with:
+
+```bash
+uv run yada eval \
+  --case benchmarks/swebench_verified/pytest-10051 \
+  --agent yada \
+  --yes
+```
+
+The outer `uv run` selects Yada's environment. The case's nested uv project
+selects the task environment; `yada eval` does not otherwise assume that every
+benchmark uses uv.
+
 ## Agent adapters
 
 The native adapter constructs Yada in process and records a normal JSONL trace.
@@ -95,7 +145,7 @@ Install the official SWE-bench package and Docker separately. Then run:
 yada eval \
   --benchmark swebench \
   --instance pytest-dev__pytest-10051 \
-  --instance-file /path/to/pytest-10051.instance.json \
+  --instance-file benchmarks/swebench_verified/pytest-10051/instance.json \
   --workspace /path/to/clean/pytest-base-repo \
   --agent yada \
   --yes \
@@ -109,6 +159,10 @@ not replace the official Docker grading environment.
 
 Use `--grade-mode none` to validate task preparation and prediction generation
 without Docker. Such a run is `skipped`, never `resolved`.
+
+The checked-in local grader is a fast feedback loop, not an official
+SWE-bench result. Only the Docker Harness path should be used for published
+resolve rates.
 
 ## Fair comparisons
 

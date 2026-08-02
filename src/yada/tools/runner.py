@@ -21,6 +21,7 @@ ToolHandler = Callable[..., dict[str, Any]]
 
 class ToolRunner:
     """Own shared tool state and route model tool calls to small handlers."""
+
     def __init__(
         self,
         workspace: Path,
@@ -28,6 +29,7 @@ class ToolRunner:
         command_policy: str = "ask",
         command_timeout_seconds: int = 120,
         max_output_chars: int = 12_000,
+        command_environment: dict[str, str] | None = None,
         approver: CommandApprover | None = None,
     ) -> None:
         self.context = ToolContext(
@@ -35,6 +37,7 @@ class ToolRunner:
             approver=approver or CommandApprover(command_policy),
             command_timeout_seconds=command_timeout_seconds,
             max_output_chars=max_output_chars,
+            command_environment=dict(command_environment or {}),
         )
         self._handlers: dict[str, ToolHandler] = {
             "search_code": search_code,
@@ -46,11 +49,13 @@ class ToolRunner:
     @property
     def workspace(self) -> Workspace:
         """Expose the workspace boundary used by all registered handlers."""
+
         return self.context.workspace
 
     @property
     def schemas(self) -> list[dict[str, Any]]:
         """Return the stable tool schemas sent with every model request."""
+
         return TOOL_SCHEMAS
 
     def execute(self, name: str, arguments: dict[str, Any]) -> ToolExecution:
@@ -64,6 +69,7 @@ class ToolRunner:
             A model-safe result. Expected tool and argument errors become
             ``{"ok": false, ...}`` observations instead of escaping the loop.
         """
+
         try:
             if name == "finish":
                 return finish(self.context, **arguments)
@@ -77,4 +83,5 @@ class ToolRunner:
 
     def final_state(self) -> dict[str, Any]:
         """Collect the bounded Git status and diff used in the final result."""
+
         return final_state(self.context)

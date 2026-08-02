@@ -30,6 +30,7 @@ class ToolContext:
     approver: CommandApprover
     command_timeout_seconds: int = 120
     max_output_chars: int = 12_000
+    command_environment: dict[str, str] = field(default_factory=dict)
     state: ToolState = field(default_factory=ToolState)
 
 

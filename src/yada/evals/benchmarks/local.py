@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -11,6 +13,15 @@ from pathlib import Path
 from typing import Any
 
 from yada.evals.base import AgentRunResult, EvalTask, GradeResult, PreparedTask
+from yada.evals.benchmarks.local_environment import (
+    prepare_environment,
+    workspace_environment,
+)
+from yada.evals.benchmarks.local_source import (
+    prepare_source,
+    require_clean,
+    require_head,
+)
 
 
 class LocalBenchmark:
@@ -18,9 +29,19 @@ class LocalBenchmark:
 
     name = "local"
 
-    def __init__(self, manifest_path: Path) -> None:
+    def __init__(
+        self,
+        manifest_path: Path,
+        *,
+        cache_root: Path | None = None,
+    ) -> None:
         self.manifest_path = manifest_path.expanduser().resolve()
         self.base_dir = self.manifest_path.parent
+        self.cache_root = (
+            cache_root.expanduser().resolve()
+            if cache_root is not None
+            else (Path.cwd() / ".yada" / "cache" / "evals").resolve()
+        )
         try:
             manifest = json.loads(self.manifest_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
@@ -40,9 +61,15 @@ class LocalBenchmark:
 
         task_file_value = self.manifest.get("task_file")
         statement_value = self.manifest.get("problem_statement")
-        if bool(task_file_value) == bool(statement_value):
+        instance_file_value = self.manifest.get("instance_file")
+        supplied = sum(
+            bool(value)
+            for value in (task_file_value, statement_value, instance_file_value)
+        )
+        if supplied != 1:
             raise ValueError(
-                "manifest must provide exactly one of task_file or problem_statement"
+                "manifest must provide exactly one of task_file, instance_file, "
+                "or problem_statement"
             )
         if task_file_value:
             task_file = self._path(_required_string(self.manifest, "task_file"))
@@ -50,20 +77,68 @@ class LocalBenchmark:
                 problem_statement = task_file.read_text(encoding="utf-8")
             except OSError as exc:
                 raise ValueError(f"cannot read task file: {exc}") from exc
+            public_metadata: dict[str, Any] = {}
+        elif instance_file_value:
+            instance_file = self._path(
+                _required_string(self.manifest, "instance_file")
+            )
+            row = _load_instance_file(instance_file)
+            row_id = _required_string(row, "instance_id")
+            if row_id != manifest_id:
+                raise ValueError(
+                    f"instance file contains {row_id!r}, not {manifest_id!r}"
+                )
+            problem_statement = _required_string(row, "problem_statement")
+            public_metadata = {
+                key: row.get(key)
+                for key in (
+                    "repo",
+                    "base_commit",
+                    "version",
+                    "difficulty",
+                    "dataset_name",
+                    "dataset_revision",
+                    "created_at",
+                    "environment_setup_commit",
+                    "split",
+                )
+                if row.get(key) is not None
+            }
         else:
             problem_statement = str(statement_value)
+            public_metadata = {}
 
         metadata = {
             "manifest": str(self.manifest_path),
+            "manifest_sha256": _sha256(self.manifest_path),
             "base_commit": self.manifest.get("base_commit"),
+            **public_metadata,
         }
+        if instance_file_value:
+            metadata["instance_sha256"] = _sha256(instance_file)
+        environment = self.manifest.get("environment")
+        if isinstance(environment, dict) and environment.get("type") == "uv":
+            project = self._path(str(environment.get("project", ".")))
+            lockfile = project / "uv.lock"
+            if lockfile.is_file():
+                metadata["environment_lock_sha256"] = _sha256(lockfile)
         return EvalTask(manifest_id, problem_statement, metadata)
 
     def prepare(self, task: EvalTask, run_dir: Path) -> PreparedTask:
         run_dir.mkdir(parents=True, exist_ok=True)
-        source = self._path(_required_string(self.manifest, "workspace"))
+        source = prepare_source(
+            self.manifest.get("workspace"),
+            base_dir=self.base_dir,
+            cache_root=self.cache_root,
+            base_commit=self.manifest.get("base_commit"),
+        )
         if not source.is_dir():
             raise ValueError(f"local benchmark workspace does not exist: {source}")
+        command_environment = prepare_environment(
+            self.manifest.get("environment"),
+            base_dir=self.base_dir,
+            source=source,
+        )
         mode = self.manifest.get("workspace_mode", "copy")
         if mode not in {"copy", "in_place"}:
             raise ValueError("workspace_mode must be 'copy' or 'in_place'")
@@ -75,7 +150,7 @@ class LocalBenchmark:
             if workspace.exists():
                 raise ValueError(f"prepared workspace already exists: {workspace}")
             if (source / ".git").exists():
-                _require_clean(source)
+                require_clean(source)
             # Local fixtures may contain generated, Git-ignored files created by
             # their pinned environment. Preserve those while isolating mutations.
             shutil.copytree(
@@ -87,8 +162,18 @@ class LocalBenchmark:
 
         expected_commit = self.manifest.get("base_commit")
         if expected_commit:
-            _require_head(workspace, str(expected_commit))
-        return PreparedTask(task, workspace, {"source_workspace": str(source)})
+            require_head(workspace, str(expected_commit))
+        command_environment.update(
+            workspace_environment(self.manifest.get("environment"), workspace)
+        )
+        return PreparedTask(
+            task,
+            workspace,
+            {
+                "source_workspace": str(source),
+                "environment": command_environment,
+            },
+        )
 
     def grade(
         self,
@@ -178,7 +263,11 @@ class LocalBenchmark:
     def _resolve_argv_item(self, value: str) -> str:
         if "{" in value or not ("/" in value or value.startswith(".")):
             return value
-        candidate = self._path(value)
+        raw = Path(value).expanduser()
+        candidate = raw if raw.is_absolute() else self.base_dir / raw
+        # Keep the final symlink intact: resolving ``.venv/bin/python`` to the
+        # base interpreter would discard the virtual environment at execution.
+        candidate = Path(os.path.abspath(candidate))
         return str(candidate) if candidate.exists() else value
 
 
@@ -189,34 +278,22 @@ def _required_string(mapping: dict[str, Any], key: str) -> str:
     return value
 
 
-def _require_head(workspace: Path, expected: str) -> None:
-    result = _run(["git", "rev-parse", "HEAD"], workspace)
-    actual = result.stdout.strip()
-    if result.returncode or actual != expected:
-        raise ValueError(f"expected base commit {expected}, got {actual or 'unknown'}")
+def _load_instance_file(path: Path) -> dict[str, Any]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"cannot read local instance file: {exc}") from exc
+    if not isinstance(value, dict):
+        raise ValueError("local instance file must be a JSON object")
+    return value
 
 
-def _require_clean(workspace: Path) -> None:
-    result = _run(
-        ["git", "status", "--porcelain", "--untracked-files=all"],
-        workspace,
-    )
-    if result.returncode:
-        raise ValueError(result.stderr.strip() or "cannot inspect workspace status")
-    if result.stdout.strip():
-        raise ValueError("local source workspace must be clean before copy mode")
-
-
-def _run(argv: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        argv,
-        cwd=cwd,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        timeout=120,
-        check=False,
-    )
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(128 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _substitute(value: str, substitutions: dict[str, str]) -> str:

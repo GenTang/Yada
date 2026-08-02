@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from yada.environments import CommandApprover
 from yada.tools import ToolRunner
 
 
@@ -143,3 +144,27 @@ def test_command_environment_removes_api_keys(
     assert result.data["ok"]
     assert result.data["stdout"].strip() == "missing"
 
+
+def test_command_environment_accepts_non_secret_task_values(
+    git_workspace: Path,
+) -> None:
+    runner = ToolRunner(
+        git_workspace,
+        approver=CommandApprover("allow"),
+        command_environment={"YADA_CASE_MARKER": "ready"},
+    )
+
+    result = runner.execute(
+        "run_command",
+        {
+            "argv": [
+                "python3",
+                "-c",
+                "import os; print(os.environ['YADA_CASE_MARKER'])",
+            ],
+            "purpose": "inspect",
+        },
+    )
+
+    assert result.data["ok"]
+    assert result.data["stdout"].strip() == "ready"

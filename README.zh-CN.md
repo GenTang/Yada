@@ -17,16 +17,20 @@ Yada 内置了 Benchmark-neutral 的评测层。`EvalRunner` 将任意
 `BenchmarkAdapter` 与任意 `AgentAdapter` 组合起来；当前提供本地 JSON Manifest、
 SWE-bench、原生 Yada 和外部命令四个适配器。
 
-运行冻结的本地任务：
+仓库内置了一个可移植的 SWE-bench Verified 开发用例。首次运行会拉取 pytest 的
+精确 commit，并创建锁定的 Python 3.9 任务环境；后续运行复用缓存，但每个 Agent
+仍获得全新的工作区：
 
 ```bash
-yada eval \
-  --benchmark local \
-  --manifest /path/to/task.local.json \
+uv run yada eval \
+  --case benchmarks/swebench_verified/pytest-10051 \
   --agent yada \
-  --yes \
-  --output results/yada.json
+  --yes
 ```
+
+该命令会运行 1 个 FAIL_TO_PASS 和 15 个 PASS_TO_PASS 测试，产生真实的本地
+resolved/unresolved 判定，但不等同于官方 Docker 成绩。源码缓存在
+`.yada/cache/evals/`，仓库只提交任务配方和任务自己的 `uv.lock`。
 
 运行 SWE-bench 时，Yada 只生成 Patch 和官方 `predictions.jsonl`，评分仍委托给
 `swebench.harness.run_evaluation` 的 Docker Harness。使用 `--grade-mode none` 可以
@@ -147,6 +151,7 @@ src/yada/
 ├── evals/         # 通用 Runner、Benchmark 与 Agent 适配器
 ├── run/           # CLI 入口
 └── utils/         # 输出截断等通用逻辑
+benchmarks/        # 可移植任务配方；运行时 checkout 放在 .yada/cache
 tests/
 ├── agents/
 ├── evals/

@@ -25,6 +25,7 @@ class StepPlan:
         reminder: Protocol reminder to append to the conversation, if needed.
         rejection_error: Batch-level protocol error that rejects every tool call.
     """
+
     tool_calls: tuple[dict[str, Any], ...]
     consecutive_text_turns: int
     display_text: str = ""
@@ -52,6 +53,7 @@ class Planner:
         Raises:
             ValueError: If ``task`` contains only whitespace.
         """
+
         if not task.strip():
             raise ValueError("task must not be empty")
         return [
@@ -76,6 +78,7 @@ class Planner:
             reminder. A mixed ``finish`` batch is preserved for traceability but
             marked with ``rejection_error`` so the executor cannot run it.
         """
+
         tool_calls = tuple(assistant_message.get("tool_calls") or ())
         if not tool_calls:
             text_turns = consecutive_text_turns + 1

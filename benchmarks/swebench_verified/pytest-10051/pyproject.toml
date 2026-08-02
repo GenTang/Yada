@@ -1,0 +1,20 @@
+[project]
+name = "yada-benchmark-pytest-10051"
+version = "0.0.0"
+requires-python = "==3.9.*"
+dependencies = [
+  "attrs==21.4.0",
+  "iniconfig==1.1.1",
+  "packaging==21.3",
+  "pluggy==1.0.0",
+  "py==1.11.0",
+  "pyparsing==3.0.8",
+  "setuptools==60.10.0",
+  "setuptools-scm[toml]==6.4.2",
+  "tomli==2.0.1",
+  "wheel==0.37.1",
+]
+
+[tool.uv]
+package = false
+

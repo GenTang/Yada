@@ -24,7 +24,10 @@ run/cli.py
     └── evals/cli.py
         └── evals/runner.py
             ├── evals/benchmarks/{local,swebench}.py
+            ├── evals/benchmarks/local_{source,environment}.py
             └── evals/agents/{yada,command}.py
+benchmarks/
+    └── swebench_verified/pytest-10051/  # recipe only; no checkout or venv
 ```
 
 - `agents/default.py`: coordinates state and the step limit; it owns no tool policy.
@@ -35,6 +38,8 @@ run/cli.py
 - `tools`: contains stateless handlers; `runner.py` composes shared tool state.
 - `traces`: records correlated append-only events and renders diagnostic timelines.
 - `evals`: composes benchmark preparation/grading with interchangeable agents.
+- `benchmarks`: stores reproducible task recipes, canonical public inputs,
+  locked task environments, and external graders.
 - `run`: parses user configuration and assembles the runtime.
 - `utils`: holds small mechanics shared by otherwise independent modules.
 

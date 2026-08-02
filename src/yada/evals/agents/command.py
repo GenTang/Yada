@@ -51,6 +51,15 @@ class CommandAgentAdapter:
         }
         argv = [_substitute(item, substitutions) for item in self.argv]
         environment = os.environ.copy()
+        prepared_environment = prepared.metadata.get("environment", {})
+        if isinstance(prepared_environment, dict):
+            environment.update(
+                {
+                    str(key): str(value)
+                    for key, value in prepared_environment.items()
+                    if isinstance(key, str) and isinstance(value, str)
+                }
+            )
         environment.update(self.environment)
 
         started = time.monotonic()

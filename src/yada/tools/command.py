@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import subprocess
 import time
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -100,6 +101,7 @@ def run_command(
     if not isinstance(effective_timeout, int) or not 1 <= effective_timeout <= 1800:
         raise ToolError("timeout_seconds must be between 1 and 1800")
     env = _sanitized_environment()
+    env.update(_sanitized_values(context.command_environment))
     env["YADA_WORKSPACE"] = str(context.workspace.root)
     started = time.monotonic()
     try:
@@ -156,9 +158,13 @@ def run_command(
 
 
 def _sanitized_environment() -> dict[str, str]:
+    return _sanitized_values(os.environ)
+
+
+def _sanitized_values(values: Mapping[str, str]) -> dict[str, str]:
     secret_markers = ("API_KEY", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL")
     return {
         key: value
-        for key, value in os.environ.items()
+        for key, value in values.items()
         if not any(marker in key.upper() for marker in secret_markers)
     }

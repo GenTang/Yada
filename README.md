@@ -19,14 +19,21 @@ Yada includes a benchmark-neutral evaluation layer. `EvalRunner` composes any
 `BenchmarkAdapter` with any `AgentAdapter`; the initial adapters cover local
 JSON manifests, SWE-bench, native Yada, and arbitrary external commands.
 
+The repository includes one portable SWE-bench Verified development case. Its
+first run fetches the exact pytest commit and creates a locked Python 3.9 task
+environment; later runs reuse those caches while keeping each agent workspace
+fresh:
+
 ```bash
-yada eval \
-  --benchmark local \
-  --manifest /path/to/task.local.json \
+uv run yada eval \
+  --case benchmarks/swebench_verified/pytest-10051 \
   --agent yada \
-  --yes \
-  --output results/yada.json
+  --yes
 ```
+
+This produces a real local verdict from one FAIL_TO_PASS and 15 PASS_TO_PASS
+tests, but it is not an official Docker score. The checkout lives under
+`.yada/cache/evals/`; the task recipe and its own `uv.lock` are committed.
 
 For SWE-bench, Yada produces the patch and official `predictions.jsonl` while
 delegating the verdict to the Docker-based `swebench.harness.run_evaluation`.
@@ -190,10 +197,13 @@ src/yada/
 ├── environments/  # workspace boundary and command approval
 ├── tools/         # one module per tool plus the small dispatcher
 ├── traces/        # JSONL writer plus a human-readable diagnostic report
+├── evals/         # generic runner plus benchmark and agent adapters
 ├── run/           # CLI entry point
 └── utils/         # bounded-output helpers
+benchmarks/        # portable recipes; generated checkouts stay in .yada/cache
 tests/
 ├── agents/
+├── evals/
 ├── models/
 ├── tools/
 └── traces/

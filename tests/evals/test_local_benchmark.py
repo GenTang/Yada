@@ -7,7 +7,7 @@ from pathlib import Path
 
 from yada.evals import EvalRunner, RunBudget
 from yada.evals.agents import CommandAgentAdapter
-from yada.evals.benchmarks import LocalBenchmark
+from yada.evals.benchmarks import LocalBenchmark, SWEbenchBenchmark
 
 
 def test_local_manifest_runs_agent_in_copy_and_external_grader(tmp_path: Path) -> None:
@@ -79,3 +79,123 @@ def test_local_manifest_runs_agent_in_copy_and_external_grader(tmp_path: Path) -
     assert "broken" in (source / "app.py").read_text()
     assert "fixed" in (tmp_path / "artifacts/workspace/app.py").read_text()
     assert "value = 'fixed'" in (result.agent_run.patch if result.agent_run else "")
+
+
+def test_local_manifest_can_load_shared_public_instance(tmp_path: Path) -> None:
+    instance = tmp_path / "instance.json"
+    instance.write_text(
+        json.dumps(
+            {
+                "instance_id": "owner__repo-1",
+                "repo": "owner/repo",
+                "base_commit": "abc123",
+                "problem_statement": "Fix the public bug.",
+                "patch": "SECRET GOLD PATCH",
+                "test_patch": "SECRET TEST PATCH",
+                "FAIL_TO_PASS": ["secret test"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    manifest = tmp_path / "case.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "instance_id": "owner__repo-1",
+                "instance_file": "instance.json",
+                "workspace": "unused",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    task = LocalBenchmark(manifest).load_task("")
+
+    assert task.problem_statement == "Fix the public bug."
+    assert task.metadata["repo"] == "owner/repo"
+    assert "patch" not in task.metadata
+    assert "test_patch" not in task.metadata
+    assert "FAIL_TO_PASS" not in task.metadata
+
+
+def test_local_manifest_bootstraps_exact_git_commit_into_cache(tmp_path: Path) -> None:
+    source = tmp_path / "upstream"
+    source.mkdir()
+    (source / "module.py").write_text("VALUE = 1\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q"], cwd=source, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=source, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=source, check=True)
+    subprocess.run(["git", "add", "module.py"], cwd=source, check=True)
+    subprocess.run(["git", "commit", "-qm", "base"], cwd=source, check=True)
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=source,
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout.strip()
+    manifest = tmp_path / "case.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "instance_id": "owner__repo-2",
+                "problem_statement": "Change VALUE.",
+                "workspace": {
+                    "type": "git",
+                    "url": str(source),
+                    "cache_key": "owner/repo-2",
+                },
+                "base_commit": head,
+            }
+        ),
+        encoding="utf-8",
+    )
+    benchmark = LocalBenchmark(manifest, cache_root=tmp_path / "cache")
+    task = benchmark.load_task("")
+
+    prepared = benchmark.prepare(task, tmp_path / "artifacts")
+
+    cached = tmp_path / "cache/owner/repo-2/repo"
+    assert cached.is_dir()
+    assert prepared.workspace != cached
+    assert (prepared.workspace / "module.py").read_text() == "VALUE = 1\n"
+
+
+def test_local_grader_keeps_virtualenv_python_symlink(tmp_path: Path) -> None:
+    environment_bin = tmp_path / ".venv/bin"
+    environment_bin.mkdir(parents=True)
+    python_link = environment_bin / "python"
+    python_link.symlink_to(sys.executable)
+    manifest = tmp_path / "case.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "instance_id": "local-symlink",
+                "problem_statement": "Keep the environment selected.",
+                "workspace": "unused",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    resolved = LocalBenchmark(manifest)._resolve_argv_item(".venv/bin/python")
+
+    assert resolved == str(python_link)
+
+
+def test_checked_in_case_shares_prompt_with_swebench_adapter() -> None:
+    case_dir = (
+        Path(__file__).resolve().parents[2]
+        / "benchmarks/swebench_verified/pytest-10051"
+    )
+    local_task = LocalBenchmark(case_dir / "case.json").load_task("")
+    swebench_task = SWEbenchBenchmark(
+        instance_file=case_dir / "instance.json",
+        grade_mode="none",
+    ).load_task("pytest-dev__pytest-10051")
+
+    assert local_task.problem_statement == swebench_task.problem_statement
+    assert local_task.metadata["base_commit"] == swebench_task.metadata["base_commit"]

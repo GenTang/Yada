@@ -21,7 +21,7 @@ class SWEbenchBenchmark:
     def __init__(
         self,
         *,
-        dataset_name: str = "SWE-bench/SWE-bench_Verified",
+        dataset_name: str = "princeton-nlp/SWE-bench_Verified",
         split: str = "test",
         instance_file: Path | None = None,
         source_workspace: Path | None = None,
@@ -77,6 +77,9 @@ class SWEbenchBenchmark:
             "base_commit": str(row["base_commit"]),
             "version": row.get("version"),
             "difficulty": row.get("difficulty"),
+            "dataset_revision": row.get("dataset_revision"),
+            "created_at": row.get("created_at"),
+            "environment_setup_commit": row.get("environment_setup_commit"),
             "dataset_name": self.dataset_name,
             "split": self.split,
         }
