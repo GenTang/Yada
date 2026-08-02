@@ -16,7 +16,6 @@ class Completion:
     model: str | None = None
     system_fingerprint: str | None = None
     finish_reason: str | None = None
-    message_field_presence: dict[str, bool] | None = None
 
 
 class CompletionClient(Protocol):

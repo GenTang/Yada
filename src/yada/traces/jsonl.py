@@ -54,10 +54,8 @@ class TraceWriter:
 
     Args:
         path: Destination file, or ``None`` to disable tracing.
-        include_reasoning: Persist raw ``reasoning_content`` when true. The
-            default stores only its length and SHA-256 digest.
-        level: ``summary`` stores compact request metrics; ``debug`` allows the
-            agent to persist sanitized provider payload snapshots.
+        level: ``summary`` stores compact request metrics and redacts reasoning;
+            ``debug`` stores sanitized provider payloads and reasoning text.
         run_id: Optional stable identifier, primarily useful for deterministic
             tests or importing events from an external orchestrator.
     """
@@ -66,14 +64,12 @@ class TraceWriter:
         self,
         path: Path | None,
         *,
-        include_reasoning: bool = False,
         level: str = "summary",
         run_id: str | None = None,
     ) -> None:
         if level not in TRACE_LEVELS:
             raise ValueError(f"trace level must be one of {sorted(TRACE_LEVELS)}")
         self.path = path
-        self.include_reasoning = include_reasoning
         self.level = level
         self.run_id = run_id or uuid.uuid4().hex
         self._sequence = 0
@@ -113,7 +109,7 @@ class TraceWriter:
         if isinstance(value, dict):
             sanitized: dict[str, Any] = {}
             for key, item in value.items():
-                if key == "reasoning_content" and not self.include_reasoning:
+                if key == "reasoning_content" and self.level != "debug":
                     text = str(item or "")
                     sanitized[key] = {
                         "redacted": True,

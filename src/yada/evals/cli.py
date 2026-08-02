@@ -83,7 +83,6 @@ def build_parser() -> argparse.ArgumentParser:
         default="ask",
     )
     model.add_argument("--yes", action="store_true")
-    model.add_argument("--trace-reasoning", action="store_true")
     model.add_argument(
         "--trace-level",
         choices=["summary", "debug"],
@@ -199,7 +198,6 @@ def run_cli(argv: list[str] | None = None) -> int:
             api_timeout_seconds=args.api_timeout,
             command_timeout_seconds=args.command_timeout,
             command_policy="allow" if args.yes else args.command_policy,
-            include_reasoning=args.trace_reasoning,
             trace_level=args.trace_level,
         )
     else:

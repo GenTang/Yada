@@ -58,7 +58,9 @@ def test_trace_events_have_correlation_metadata_and_redaction(tmp_path: Path) ->
     assert "step=1 assistant duration=7ms" in report
 
 
-def test_debug_trace_redacts_reasoning_and_common_secrets(tmp_path: Path) -> None:
+def test_debug_trace_includes_reasoning_and_redacts_common_secrets(
+    tmp_path: Path,
+) -> None:
     path = tmp_path / "debug.jsonl"
     trace = TraceWriter(path, level="debug", run_id="debug")
     trace.write(
@@ -71,7 +73,9 @@ def test_debug_trace_redacts_reasoning_and_common_secrets(tmp_path: Path) -> Non
                 "messages": [
                     {
                         "role": "assistant",
-                        "reasoning_content": "private reasoning",
+                        "reasoning_content": (
+                            "private reasoning; Authorization: Bearer reasoning-token"
+                        ),
                         "content": "Authorization: Bearer top-secret-token",
                     }
                 ],
@@ -83,17 +87,20 @@ def test_debug_trace_redacts_reasoning_and_common_secrets(tmp_path: Path) -> Non
     payload = reconstruct_model_request(read_trace(path), 1)
 
     assert payload["api_key"] == "[REDACTED]"
-    assert payload["messages"][0]["reasoning_content"]["redacted"] is True
+    assert payload["messages"][0]["reasoning_content"] == (
+        "private reasoning; Authorization: Bearer [REDACTED]"
+    )
     assert payload["messages"][0]["content"] == "Authorization: Bearer [REDACTED]"
     stored = path.read_text(encoding="utf-8")
     assert "sk-secret-value" not in stored
     assert "top-secret-token" not in stored
-    assert "private reasoning" not in stored
+    assert "reasoning-token" not in stored
+    assert "private reasoning" in stored
 
 
-def test_trace_reasoning_can_be_included_in_debug_payload(tmp_path: Path) -> None:
+def test_debug_trace_always_includes_reasoning(tmp_path: Path) -> None:
     path = tmp_path / "reasoning.jsonl"
-    trace = TraceWriter(path, level="debug", include_reasoning=True)
+    trace = TraceWriter(path, level="debug")
     trace.write(
         "model_request",
         {
@@ -261,3 +268,5 @@ def test_agent_clis_expose_trace_level() -> None:
 
     assert run_args.trace_level == "debug"
     assert eval_args.trace_level == "debug"
+    assert "--trace-reasoning" not in build_run_parser().format_help()
+    assert "--trace-reasoning" not in build_eval_parser().format_help()

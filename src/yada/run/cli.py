@@ -71,15 +71,13 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
-        "--trace-reasoning",
-        action="store_true",
-        help="Store full reasoning_content in the trace; redacted by default.",
-    )
-    parser.add_argument(
         "--trace-level",
         choices=["summary", "debug"],
         default="summary",
-        help="summary stores compact metrics; debug stores sanitized model payloads.",
+        help=(
+            "summary redacts reasoning; debug stores sanitized model payloads "
+            "and reasoning."
+        ),
     )
     parser.add_argument("--version", action="version", version=f"yada {__version__}")
     return parser
@@ -142,7 +140,6 @@ def run_cli(argv: list[str] | None = None) -> int:
         ),
         trace=TraceWriter(
             trace_path,
-            include_reasoning=args.trace_reasoning,
             level=args.trace_level,
         ),
         max_steps=args.max_steps,

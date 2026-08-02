@@ -55,20 +55,12 @@ def test_completion_uses_deepseek_thinking_contract(monkeypatch) -> None:
     assert "tool_choice" not in payload
     assert completion.message["content"] == ""
     assert completion.message["reasoning_content"] == "must be passed back"
-    assert completion.message_field_presence == {
-        "role_present": True,
-        "content_present": True,
-        "reasoning_content_present": True,
-        "tool_calls_present": True,
-    }
     assert completion.system_fingerprint == "fingerprint-1"
     assert client.trace_config()["provider"] == "deepseek"
     assert "api_key" not in client.trace_config()
 
 
-def test_completion_distinguishes_missing_content_from_empty_content(
-    monkeypatch,
-) -> None:
+def test_completion_normalizes_missing_content(monkeypatch) -> None:
     client = DeepSeekClient(api_key="test-key")
     response = {
         "choices": [
@@ -88,9 +80,7 @@ def test_completion_distinguishes_missing_content_from_empty_content(
     completion = client.complete(messages=[], tools=[])
 
     assert completion.message["content"] == ""
-    assert completion.message_field_presence is not None
-    assert completion.message_field_presence["content_present"] is False
-    assert completion.message_field_presence["reasoning_content_present"] is True
+    assert completion.message["reasoning_content"] == "call a tool"
 
 
 def test_non_thinking_mode_uses_automatic_tool_choice(monkeypatch) -> None:

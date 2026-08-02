@@ -50,7 +50,7 @@ run_end
 | --- | --- | --- |
 | `run_start` | Once, before the loop. | `model`, `task`, `workspace`, `max_steps`, `trace_level`, `model_config`, `provenance` |
 | `model_request` | Once per attempted model turn. | `step`, `request_id`, `context`; debug traces also contain `payload` and `capture` |
-| `assistant` | Once after a successful model request. | `step`, `request_id`, `duration_ms`, `message`, `message_field_presence`, `usage`, response metadata, `finish_reason` |
+| `assistant` | Once after a successful model request. | `step`, `request_id`, `duration_ms`, `message`, `usage`, response metadata, `finish_reason` |
 | `model_error` | Instead of `assistant` when a request raises. | `step`, `request_id`, `duration_ms`, `error_type`, `error` |
 | `plan_decision` | Once after each `assistant`. | `step`, `action`, ordered `tools`, `rejection_error` |
 | `protocol_reminder` | When the assistant returns no tool call. | `step`, `text` |
@@ -77,31 +77,8 @@ the action for the turn. Yada appends the whole assistant message to the
 conversation so DeepSeek reasoning is available on subsequent tool-call turns.
 
 The DeepSeek adapter normalizes an omitted `role` to `"assistant"` and an omitted
-`content` to `""`. The `assistant.data.message_field_presence` object preserves
-what the provider actually sent before normalization:
-
-```json
-{
-  "message": {"role": "assistant", "content": "", "tool_calls": []},
-  "message_field_presence": {
-    "role_present": true,
-    "content_present": false,
-    "reasoning_content_present": false,
-    "tool_calls_present": true
-  }
-}
-```
-
-Interpret `content` with its presence flag:
-
-| Normalized value | `content_present` | Meaning |
-| --- | --- | --- |
-| `""` | `true` | The provider explicitly returned an empty string. |
-| `""` | `false` | The provider omitted the field; Yada supplied its default. |
-| non-empty string | `true` | The provider returned narration. |
-
-The metadata is present for adapters that expose upstream field presence. Older
-traces and custom completion clients can omit it.
+`content` to `""`. Use `finish_reason` and `tool_calls` to interpret an empty
+content value: on a tool-calling turn, the tool call is the model's action.
 
 ## Capture levels and sensitive data
 
@@ -110,11 +87,13 @@ compact request-context metrics. `--trace-level debug` additionally records the
 sanitized provider request payload built by the same client method used for the
 HTTP request.
 
-Reasoning is replaced by its character count and SHA-256 digest unless
-`--trace-reasoning` is explicit. API-key-like fields and bearer, token, password,
-credential, and secret text are redacted in both capture levels. Redaction does
-not make a trace public: prompts, source code, patches, paths, and test output can
-remain sensitive.
+Summary traces replace reasoning with its character count and SHA-256 digest.
+Debug traces automatically retain reasoning because it is essential for
+understanding intermediate tool-calling turns where `content` may be empty.
+API-key-like fields and bearer, token, password, credential, and secret text are
+redacted in both capture levels. Redaction does not make a trace public: debug
+traces can contain reasoning, prompts, source code, patches, paths, and test
+output.
 
 ## Inspection recipes
 
@@ -146,13 +125,12 @@ jq 'select(.event == "model_request" and .data.step == 12) | .data.payload' \
   TRACE.jsonl
 ```
 
-Show the response channels and upstream field presence for every model turn:
+Show the response channels for every model turn:
 
 ```bash
 jq 'select(.event == "assistant") |
   {step: .data.step,
    finish_reason: .data.finish_reason,
-   message_field_presence: .data.message_field_presence,
    content: .data.message.content,
    reasoning_content: .data.message.reasoning_content,
    tool_calls: .data.message.tool_calls}' TRACE.jsonl

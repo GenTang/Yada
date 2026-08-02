@@ -140,10 +140,10 @@ Tools:
 DeepSeek thinking-mode `reasoning_content` is retained in memory and passed back
 after tool calls, as required by the API. The default `--trace-level summary`
 records compact context metrics. `--trace-level debug` additionally records the
-complete sanitized provider payload for every model turn. JSONL traces redact
-reasoning text by default while retaining its length and hash, and also redact
-common API keys, authorization values, tokens, passwords, and secrets. Use
-`--trace-reasoning` only if you intentionally want to store raw reasoning.
+complete sanitized provider payload and reasoning text for every model turn.
+Summary traces replace reasoning with its length and hash. Both levels redact
+common API keys, authorization values, tokens, passwords, and secrets. Debug
+traces contain sensitive model context and must be handled accordingly.
 
 Capture a replayable debug trace during an evaluation:
 

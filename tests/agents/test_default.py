@@ -32,12 +32,6 @@ def tool_call(call_id: str, name: str, arguments: dict[str, Any]) -> Completion:
         usage={"prompt_tokens": 10, "completion_tokens": 5},
         model="fake-deepseek-v4-pro",
         finish_reason="tool_calls",
-        message_field_presence={
-            "role_present": True,
-            "content_present": True,
-            "reasoning_content_present": True,
-            "tool_calls_present": True,
-        },
     )
 
 
@@ -124,10 +118,6 @@ def test_offline_end_to_end_loop(tmp_path: Path) -> None:
     trace = trace_path.read_text(encoding="utf-8")
     assert '"redacted": true' in trace
     assert "reasoning for read_file" not in trace
-    assistant = next(
-        event for event in read_trace(trace_path) if event["event"] == "assistant"
-    )
-    assert assistant["data"]["message_field_presence"]["content_present"] is True
     # DeepSeek requires the prior assistant reasoning_content on the next request.
     assert client.seen_messages[1][-2]["reasoning_content"] == "reasoning for read_file"
 
@@ -154,7 +144,6 @@ def test_debug_trace_reconstructs_exact_client_payload(tmp_path: Path) -> None:
         trace=TraceWriter(
             trace_path,
             level="debug",
-            include_reasoning=True,
             run_id="debug-run",
         ),
         max_steps=2,

@@ -31,7 +31,6 @@ class YadaAgentAdapter:
         api_timeout_seconds: int = 300,
         command_timeout_seconds: int = 120,
         command_policy: str = "ask",
-        include_reasoning: bool = False,
         trace_level: str = "summary",
         client_factory: Callable[[RunBudget], CompletionClient] | None = None,
         emit: Callable[[str], None] = print,
@@ -46,7 +45,6 @@ class YadaAgentAdapter:
         self.api_timeout_seconds = api_timeout_seconds
         self.command_timeout_seconds = command_timeout_seconds
         self.command_policy = command_policy
-        self.include_reasoning = include_reasoning
         self.trace_level = trace_level
         self.client_factory = client_factory
         self.emit = emit
@@ -82,7 +80,6 @@ class YadaAgentAdapter:
             tools=tools,
             trace=TraceWriter(
                 trace_path,
-                include_reasoning=self.include_reasoning,
                 level=self.trace_level,
             ),
             max_steps=budget.max_steps,

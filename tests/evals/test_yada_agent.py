@@ -17,7 +17,11 @@ class OneTurnClient:
 
     def complete(self, *, messages, tools):
         return Completion(
-            message={"role": "assistant", "content": "inspect next"},
+            message={
+                "role": "assistant",
+                "content": "inspect next",
+                "reasoning_content": "debug reasoning",
+            },
             usage={"prompt_tokens": 2, "completion_tokens": 1},
             model=self.model,
             finish_reason="stop",
@@ -67,3 +71,5 @@ def test_yada_eval_trace_includes_case_and_workspace_provenance(
     assert start["provenance"]["case_id"] == "case-123"
     assert start["provenance"]["workspace_base_commit"] == head
     assert reconstruct_model_request(events, 1)["model"] == "fake-deepseek"
+    assistant = next(event for event in events if event["event"] == "assistant")
+    assert assistant["data"]["message"]["reasoning_content"] == "debug reasoning"

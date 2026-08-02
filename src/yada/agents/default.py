@@ -125,9 +125,7 @@ class Agent:
                     self.tools.schemas,
                 )
                 request_record["capture"] = {
-                    "reasoning": (
-                        "included" if self.trace.include_reasoning else "redacted"
-                    ),
+                    "reasoning": "included",
                     "secrets": "redacted",
                 }
             self.trace.write(
@@ -169,10 +167,6 @@ class Agent:
                 "system_fingerprint": completion.system_fingerprint,
                 "finish_reason": completion.finish_reason,
             }
-            if completion.message_field_presence is not None:
-                assistant_record["message_field_presence"] = (
-                    completion.message_field_presence
-                )
             self.trace.write(
                 "assistant",
                 assistant_record,
