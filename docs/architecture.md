@@ -89,15 +89,25 @@ verification gate; only `test` and `build` do.
 ## Trace diagnostics
 
 JSONL is the crash-safe source of truth, but it is not the debugging interface.
-Each event includes `schema_version`, `run_id`, `sequence`, UTC time, and elapsed
-milliseconds. Model requests capture message count and serialized context size;
-responses capture provider metadata and latency; tool calls and results share a
-`tool_call_id`; `plan_decision` records the side-effect-free policy outcome.
-`model_error` leaves an explicit failed request in interrupted runs.
+Schema v2 has two capture levels. `summary` records context size and event timing;
+`debug` also stores the sanitized provider payload built by the same client method
+used for the HTTP request. Responses, planner decisions, tool calls, and tool
+results remain correlated by step, request ID, and tool-call ID. `run_start`
+records Yada version/commit, workspace base commit, case ID when available, and
+the model configuration.
 
-`yada-trace PATH` validates this stream and renders a bounded timeline with run
-outcome, tool failures, protocol reminders, and per-step durations. It never
-echoes full prompts, arguments, reasoning, or command output into the summary.
+`yada-trace PATH` renders the compact summary. `--step N` expands one request →
+response → tools slice, while `--verbose` expands the full timeline. Reasoning
+is length/hash-redacted in summary traces and automatically retained in debug
+traces. Common secret keys and bearer/API-key-like text are redacted in both
+modes. A debug trace can still contain reasoning, source code, and test output
+and must be handled as a sensitive artifact.
+The complete event and field reference lives in [tracing.md](tracing.md).
+
+The MVP stores a full sanitized request snapshot per turn. This deliberately
+favors deterministic inspection over delta complexity; content-addressed prompts
+or message deltas can replace it later if measured trace size justifies the added
+reader and compatibility cost.
 
 ## Security boundary
 

@@ -6,13 +6,13 @@ import argparse
 import os
 import shlex
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 
 from yada.evals.agents import CommandAgentAdapter, YadaAgentAdapter
 from yada.evals.base import RunBudget
 from yada.evals.benchmarks import LocalBenchmark, SWEbenchBenchmark
 from yada.evals.runner import EvalRunner
+from yada.utils.naming import readable_run_name
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -44,8 +44,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--output",
         type=Path,
-        default=_default_output_path(),
-        help="Result JSON path.",
+        help=(
+            "Result JSON path (default: eval-results/<task>__<readable-UTC-time>.json)."
+        ),
     )
     parser.add_argument(
         "--artifact-dir",
@@ -82,7 +83,11 @@ def build_parser() -> argparse.ArgumentParser:
         default="ask",
     )
     model.add_argument("--yes", action="store_true")
-    model.add_argument("--trace-reasoning", action="store_true")
+    model.add_argument(
+        "--trace-level",
+        choices=["summary", "debug"],
+        default="summary",
+    )
 
     local = parser.add_argument_group("local benchmark")
     local.add_argument("--manifest", type=Path)
@@ -127,13 +132,6 @@ def run_cli(argv: list[str] | None = None) -> int:
 
     parser = build_parser()
     args = parser.parse_args(argv)
-    output_path = args.output.expanduser().resolve()
-    artifact_dir = (
-        args.artifact_dir.expanduser().resolve()
-        if args.artifact_dir
-        else output_path.with_suffix("").with_name(output_path.stem + ".artifacts")
-    )
-
     if args.case is not None:
         if args.benchmark not in {None, "local"}:
             parser.error("--case can only be used with --benchmark local")
@@ -147,12 +145,14 @@ def run_cli(argv: list[str] | None = None) -> int:
             manifest_path,
             cache_root=args.cache_dir,
         )
-        instance_id = args.instance or ""
+        instance_id = args.instance or _manifest_instance_id(benchmark)
+        task_name = instance_id or case_path.stem
     elif args.benchmark == "local":
         if args.manifest is None:
             parser.error("--manifest is required for --benchmark local")
         benchmark = LocalBenchmark(args.manifest, cache_root=args.cache_dir)
-        instance_id = args.instance or ""
+        instance_id = args.instance or _manifest_instance_id(benchmark)
+        task_name = instance_id or args.manifest.stem
     elif args.benchmark == "swebench":
         if not args.instance:
             parser.error("--instance is required for --benchmark swebench")
@@ -170,8 +170,20 @@ def run_cli(argv: list[str] | None = None) -> int:
             grade_timeout_seconds=args.grade_timeout,
         )
         instance_id = args.instance
+        task_name = instance_id
     else:
         parser.error("provide --case or --benchmark")
+
+    output_path = (
+        args.output.expanduser().resolve()
+        if args.output is not None
+        else _default_output_path(task_name).resolve()
+    )
+    artifact_dir = (
+        args.artifact_dir.expanduser().resolve()
+        if args.artifact_dir
+        else output_path.with_suffix("").with_name(output_path.stem + ".artifacts")
+    )
 
     if args.agent == "yada":
         api_key = os.environ.get("DEEPSEEK_API_KEY", "")
@@ -186,7 +198,7 @@ def run_cli(argv: list[str] | None = None) -> int:
             api_timeout_seconds=args.api_timeout,
             command_timeout_seconds=args.command_timeout,
             command_policy="allow" if args.yes else args.command_policy,
-            include_reasoning=args.trace_reasoning,
+            trace_level=args.trace_level,
         )
     else:
         if not args.agent_command:
@@ -229,6 +241,10 @@ def run_cli(argv: list[str] | None = None) -> int:
     return 2
 
 
-def _default_output_path() -> Path:
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    return Path("eval-results") / f"{timestamp}.json"
+def _default_output_path(task_name: str) -> Path:
+    return Path("eval-results") / f"{readable_run_name(task_name)}.json"
+
+
+def _manifest_instance_id(benchmark: LocalBenchmark) -> str:
+    value = benchmark.manifest.get("instance_id")
+    return value if isinstance(value, str) else ""

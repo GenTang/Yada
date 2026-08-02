@@ -47,11 +47,40 @@ def test_completion_uses_deepseek_thinking_contract(monkeypatch) -> None:
     )
 
     payload = json.loads(sent[0].data.decode("utf-8"))
+    assert payload == client.request_payload(
+        messages=[{"role": "user", "content": "hello"}], tools=[]
+    )
     assert payload["thinking"] == {"type": "enabled"}
     assert payload["reasoning_effort"] == "max"
     assert "tool_choice" not in payload
+    assert completion.message["content"] == ""
     assert completion.message["reasoning_content"] == "must be passed back"
     assert completion.system_fingerprint == "fingerprint-1"
+    assert client.trace_config()["provider"] == "deepseek"
+    assert "api_key" not in client.trace_config()
+
+
+def test_completion_normalizes_missing_content(monkeypatch) -> None:
+    client = DeepSeekClient(api_key="test-key")
+    response = {
+        "choices": [
+            {
+                "finish_reason": "tool_calls",
+                "message": {
+                    "role": "assistant",
+                    "reasoning_content": "call a tool",
+                    "tool_calls": [],
+                },
+            }
+        ]
+    }
+
+    monkeypatch.setattr(client, "_send_with_retries", lambda request: response)
+
+    completion = client.complete(messages=[], tools=[])
+
+    assert completion.message["content"] == ""
+    assert completion.message["reasoning_content"] == "call a tool"
 
 
 def test_non_thinking_mode_uses_automatic_tool_choice(monkeypatch) -> None:

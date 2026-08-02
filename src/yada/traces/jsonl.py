@@ -9,13 +9,44 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-TRACE_SCHEMA_VERSION = 1
+TRACE_SCHEMA_VERSION = 2
+TRACE_LEVELS = {"summary", "debug"}
+_REDACTED = "[REDACTED]"
+_SECRET_KEYS = {
+    "authorization",
+    "credential",
+    "credentials",
+    "password",
+    "proxy_authorization",
+    "secret",
+    "token",
+}
+_SECRET_SUFFIXES = (
+    "_api_key",
+    "_access_token",
+    "_auth_token",
+    "_credential",
+    "_credentials",
+    "_password",
+    "_refresh_token",
+    "_secret",
+)
+_SECRET_TEXT_PATTERNS = (
+    re.compile(r"(?i)\b(bearer\s+)[A-Za-z0-9._~+/=-]+"),
+    re.compile(
+        r"(?i)\b((?:api[_-]?key|access[_-]?token|auth[_-]?token|"
+        r"refresh[_-]?token|password|secret|credential)s?\s*[:=]\s*)"
+        r"(?:[\"'][^\"']*[\"']|[^\s,;]+)"
+    ),
+    re.compile(r"\bsk-[A-Za-z0-9_-]{8,}\b"),
+)
 
 
 class TraceWriter:
@@ -23,8 +54,8 @@ class TraceWriter:
 
     Args:
         path: Destination file, or ``None`` to disable tracing.
-        include_reasoning: Persist raw ``reasoning_content`` when true. The
-            default stores only its length and SHA-256 digest.
+        level: ``summary`` stores compact request metrics and redacts reasoning;
+            ``debug`` stores sanitized provider payloads and reasoning text.
         run_id: Optional stable identifier, primarily useful for deterministic
             tests or importing events from an external orchestrator.
     """
@@ -33,11 +64,13 @@ class TraceWriter:
         self,
         path: Path | None,
         *,
-        include_reasoning: bool = False,
+        level: str = "summary",
         run_id: str | None = None,
     ) -> None:
+        if level not in TRACE_LEVELS:
+            raise ValueError(f"trace level must be one of {sorted(TRACE_LEVELS)}")
         self.path = path
-        self.include_reasoning = include_reasoning
+        self.level = level
         self.run_id = run_id or uuid.uuid4().hex
         self._sequence = 0
         self._started = time.monotonic()
@@ -76,13 +109,15 @@ class TraceWriter:
         if isinstance(value, dict):
             sanitized: dict[str, Any] = {}
             for key, item in value.items():
-                if key == "reasoning_content" and not self.include_reasoning:
+                if key == "reasoning_content" and self.level != "debug":
                     text = str(item or "")
                     sanitized[key] = {
                         "redacted": True,
                         "chars": len(text),
                         "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
                     }
+                elif _is_secret_key(key):
+                    sanitized[key] = _REDACTED
                 else:
                     sanitized[key] = self._sanitize(item)
             return sanitized
@@ -90,4 +125,17 @@ class TraceWriter:
             return [self._sanitize(item) for item in value]
         if isinstance(value, tuple):
             return [self._sanitize(item) for item in value]
+        if isinstance(value, str):
+            return _sanitize_text(value)
         return value
+
+
+def _is_secret_key(key: Any) -> bool:
+    normalized = str(key).casefold().replace("-", "_")
+    return normalized in _SECRET_KEYS or normalized.endswith(_SECRET_SUFFIXES)
+
+
+def _sanitize_text(value: str) -> str:
+    sanitized = _SECRET_TEXT_PATTERNS[0].sub(r"\1[REDACTED]", value)
+    sanitized = _SECRET_TEXT_PATTERNS[1].sub(r"\1[REDACTED]", sanitized)
+    return _SECRET_TEXT_PATTERNS[2].sub(_REDACTED, sanitized)

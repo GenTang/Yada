@@ -9,7 +9,7 @@ from yada.agents import Agent, Planner
 from yada.environments import CommandApprover
 from yada.models import Completion
 from yada.tools import ToolRunner
-from yada.traces import TraceWriter
+from yada.traces import TraceWriter, read_trace, reconstruct_model_request
 
 
 def tool_call(call_id: str, name: str, arguments: dict[str, Any]) -> Completion:
@@ -41,9 +41,21 @@ class FakeClient:
     def __init__(self, completions: list[Completion]) -> None:
         self.completions = completions
         self.seen_messages: list[list[dict[str, Any]]] = []
+        self.seen_payloads: list[dict[str, Any]] = []
+
+    def request_payload(self, *, messages, tools):
+        return {
+            "model": self.model,
+            "messages": messages,
+            "tools": tools,
+            "thinking": {"type": "enabled"},
+        }
 
     def complete(self, *, messages, tools):
         self.seen_messages.append(list(messages))
+        self.seen_payloads.append(
+            json.loads(json.dumps(self.request_payload(messages=messages, tools=tools)))
+        )
         return self.completions.pop(0)
 
 
@@ -108,6 +120,50 @@ def test_offline_end_to_end_loop(tmp_path: Path) -> None:
     assert "reasoning for read_file" not in trace
     # DeepSeek requires the prior assistant reasoning_content on the next request.
     assert client.seen_messages[1][-2]["reasoning_content"] == "reasoning for read_file"
+
+
+def test_debug_trace_reconstructs_exact_client_payload(tmp_path: Path) -> None:
+    path = tmp_path / "value.py"
+    path.write_text("VALUE = 1\n", encoding="utf-8")
+    runner = ToolRunner(tmp_path, approver=CommandApprover("allow"))
+    client = FakeClient(
+        [
+            tool_call("call-read", "read_file", {"path": "value.py"}),
+            Completion(
+                message={"role": "assistant", "content": "still working"},
+                usage={"prompt_tokens": 2, "completion_tokens": 1},
+                model="fake-deepseek-v4-pro",
+                finish_reason="stop",
+            ),
+        ]
+    )
+    trace_path = tmp_path / ".yada" / "debug.jsonl"
+    agent = Agent(
+        client=client,
+        tools=runner,
+        trace=TraceWriter(
+            trace_path,
+            level="debug",
+            run_id="debug-run",
+        ),
+        max_steps=2,
+        emit=lambda _: None,
+        trace_metadata={"case_id": "fixture-1"},
+    )
+
+    result = agent.run("Inspect VALUE")
+
+    assert not result.finished
+    events = read_trace(trace_path)
+    assert reconstruct_model_request(events, 1) == client.seen_payloads[0]
+    assert reconstruct_model_request(events, 2) == client.seen_payloads[1]
+    second_messages = reconstruct_model_request(events, 2)["messages"]
+    assert second_messages[-2]["reasoning_content"] == "reasoning for read_file"
+    run_start = events[0]["data"]
+    assert run_start["trace_level"] == "debug"
+    assert run_start["provenance"]["case_id"] == "fixture-1"
+    assert "yada_version" in run_start["provenance"]
+    assert "workspace_base_commit" in run_start["provenance"]
 
 
 def test_planner_rejects_finish_mixed_with_other_calls() -> None:

@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from yada.traces.jsonl import TRACE_SCHEMA_VERSION
+
 
 class TraceFormatError(ValueError):
     """Raised when a JSONL trace contains an invalid event record."""
@@ -43,13 +45,52 @@ def read_trace(path: Path) -> list[dict[str, Any]]:
             )
         if not isinstance(record.get("data"), dict):
             raise TraceFormatError(f"line {line_number}: data must be an object")
+        schema_version = record.get("schema_version")
+        if isinstance(schema_version, int) and schema_version > TRACE_SCHEMA_VERSION:
+            raise TraceFormatError(
+                f"line {line_number}: trace schema {schema_version} is newer than "
+                f"supported schema {TRACE_SCHEMA_VERSION}"
+            )
         events.append(record)
     if not events:
         raise TraceFormatError("trace contains no events")
     return events
 
 
-def render_trace_report(path: Path) -> str:
+def reconstruct_model_request(
+    events: list[dict[str, Any]],
+    step: int,
+) -> dict[str, Any]:
+    """Return the sanitized provider payload captured for one model turn.
+
+    Summary and legacy traces intentionally lack this payload. Callers receive a
+    clear error instead of a partial reconstruction assembled from source code.
+    """
+
+    request = next(
+        (
+            event
+            for event in events
+            if event["event"] == "model_request" and event["data"].get("step") == step
+        ),
+        None,
+    )
+    if request is None:
+        raise TraceFormatError(f"trace contains no model request for step {step}")
+    payload = request["data"].get("payload")
+    if not isinstance(payload, dict):
+        raise TraceFormatError(
+            f"step {step} has no captured model payload; rerun with --trace-level debug"
+        )
+    return payload
+
+
+def render_trace_report(
+    path: Path,
+    *,
+    step: int | None = None,
+    verbose: bool = False,
+) -> str:
     """Render a compact run summary and chronological event timeline.
 
     The report intentionally summarizes large prompts, arguments, and command
@@ -64,6 +105,13 @@ def render_trace_report(path: Path) -> str:
     """
 
     events = read_trace(path)
+    timeline_events = events
+    if step is not None:
+        timeline_events = [
+            event for event in events if event["data"].get("step") == step
+        ]
+        if not timeline_events:
+            raise TraceFormatError(f"trace contains no events for step {step}")
     start = _first_event(events, "run_start")
     end = _first_event(reversed(events), "run_end")
     model_turns = sum(event["event"] == "assistant" for event in events)
@@ -99,6 +147,7 @@ def render_trace_report(path: Path) -> str:
         f"Path: {path}",
         f"Run: {run_id}",
         f"Model: {start_data.get('model', 'unknown')}",
+        f"Trace level: {start_data.get('trace_level', 'legacy')}",
         f"Task: {_one_line(start_data.get('task', 'unknown'), 160)}",
         f"Outcome: {outcome}",
         (
@@ -106,12 +155,26 @@ def render_trace_report(path: Path) -> str:
             f"{model_turns} model turns, {len(tool_results)} tool results, "
             f"{tool_failures} tool failures, {reminders} reminders, {last_elapsed} ms"
         ),
-        "Timeline:",
+        f"Timeline{f' (step {step})' if step is not None else ''}:",
     ]
-    for fallback_sequence, event in enumerate(events, 1):
+    detailed = verbose or step is not None
+    for fallback_sequence, event in enumerate(timeline_events, 1):
         sequence = event.get("sequence", fallback_sequence)
         elapsed = event.get("elapsed_ms", "?")
         lines.append(f"  [{sequence!s:>3} +{elapsed!s:>6}ms] {_describe_event(event)}")
+        if detailed:
+            if event["event"] == "model_request" and "payload" not in event["data"]:
+                lines.append(
+                    "      payload unavailable: rerun with --trace-level debug"
+                )
+            rendered = json.dumps(
+                event["data"],
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
+                default=str,
+            )
+            lines.extend(f"      {line}" for line in rendered.splitlines())
     return "\n".join(lines) + "\n"
 
 

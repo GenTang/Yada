@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 
 from yada import __version__
@@ -13,6 +12,7 @@ from yada.agents import Agent
 from yada.models import DeepSeekAPIError, DeepSeekClient
 from yada.tools import ToolRunner
 from yada.traces import TraceWriter
+from yada.utils.naming import readable_run_name
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -65,12 +65,19 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--trace",
         type=Path,
-        help="JSONL trace path (default: WORKSPACE/.yada/runs/<timestamp>.jsonl).",
+        help=(
+            "JSONL trace path (default: "
+            "WORKSPACE/.yada/runs/<task>__<readable-UTC-time>.jsonl)."
+        ),
     )
     parser.add_argument(
-        "--trace-reasoning",
-        action="store_true",
-        help="Store full reasoning_content in the trace; redacted by default.",
+        "--trace-level",
+        choices=["summary", "debug"],
+        default="summary",
+        help=(
+            "summary redacts reasoning; debug stores sanitized model payloads "
+            "and reasoning."
+        ),
     )
     parser.add_argument("--version", action="version", version=f"yada {__version__}")
     return parser
@@ -114,7 +121,7 @@ def run_cli(argv: list[str] | None = None) -> int:
     if not api_key:
         parser.error("DEEPSEEK_API_KEY is not set")
 
-    trace_path = args.trace or _default_trace_path(workspace)
+    trace_path = args.trace or _default_trace_path(workspace, task)
     command_policy = "allow" if args.yes else args.command_policy
     agent = Agent(
         client=DeepSeekClient(
@@ -131,7 +138,10 @@ def run_cli(argv: list[str] | None = None) -> int:
             command_policy=command_policy,
             command_timeout_seconds=args.command_timeout,
         ),
-        trace=TraceWriter(trace_path, include_reasoning=args.trace_reasoning),
+        trace=TraceWriter(
+            trace_path,
+            level=args.trace_level,
+        ),
         max_steps=args.max_steps,
     )
 
@@ -142,6 +152,7 @@ def run_cli(argv: list[str] | None = None) -> int:
         f"(thinking={args.thinking}, effort={args.reasoning_effort})"
     )
     print(f"Trace: {trace_path}")
+    print(f"Trace level: {args.trace_level}")
     if command_policy == "allow":
         print(
             "WARNING: command execution is autonomous; use a container for untrusted repos."
@@ -171,11 +182,8 @@ def run_cli(argv: list[str] | None = None) -> int:
     return 0 if result.finished else 2
 
 
-def _default_trace_path(workspace: Path) -> Path:
-    # Microseconds prevent two short runs launched in the same second from
-    # appending unrelated events to one file.
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
-    return workspace / ".yada" / "runs" / f"{timestamp}.jsonl"
+def _default_trace_path(workspace: Path, task: str) -> Path:
+    return workspace / ".yada" / "runs" / f"{readable_run_name(task)}.jsonl"
 
 
 def main() -> None:
