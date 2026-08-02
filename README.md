@@ -8,7 +8,7 @@ specifically for DeepSeek V4.
 Yada is deliberately narrow: one agent loop, separate planning and execution
 boundaries, one append-only conversation, five tools, version-checked patches,
 and a verification gate. The runtime has no third-party Python dependencies.
-Development and tests use pytest.
+Development checks use Ruff and pytest.
 
 > Alpha status: the offline agent loop is tested, but no comparative benchmark
 > result is claimed yet.
@@ -62,7 +62,7 @@ The recommended workflow uses [uv](https://docs.astral.sh/uv/):
 
 ```bash
 cd Yada
-uv sync --extra dev
+uv sync --locked --dev
 export DEEPSEEK_API_KEY="sk-..."
 
 uv run yada "Fix the failing parser edge case and run the relevant tests" \
@@ -170,21 +170,23 @@ Repository tests are arbitrary code. Run unfamiliar repositories in a disposable
 VM or a stronger sandbox. The included Dockerfile reduces filesystem exposure,
 but repository code can still access the container network.
 
-## Tests
+## Development checks
 
 The test suite includes a fully offline fake-model run through read → patch →
 test → finish, plus stale hash, path escape, secret environment, and verification
-gate tests.
+gate tests. Ruff provides the repository's lint and formatting gates.
 
 ```bash
-uv sync --extra dev
-uv run pytest
+uv sync --locked --dev
+uv run --frozen ruff check .
+uv run --frozen ruff format --check .
+uv run --frozen pytest tests/ -v
 ```
 
-Without uv, use `python3 -m pip install -e ".[dev]"` followed by
-`python3 -m pytest`. pytest is a development dependency rather than a runtime dependency. Its
-fixtures keep repository setup reusable, `monkeypatch` makes process-boundary
-tests explicit, and plain `assert` statements produce compact failure output.
+CI runs the same checks on Python 3.11 and 3.12. Without uv, install the runtime
+project with `python3 -m pip install -e .`, install `pytest` and `ruff` separately,
+then run the equivalent commands. These tools remain development dependencies and
+do not increase Yada's runtime dependency footprint.
 
 ## Project layout
 

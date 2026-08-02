@@ -7,7 +7,7 @@ Coding Agent Harness。
 
 Yada 有意保持克制：单 Agent 循环、独立的规划/执行边界、追加式会话、5个工具、
 带版本校验的 Patch，以及“修改后必须通过测试才能完成”的验证门槛。运行时没有
-第三方 Python 依赖；开发和测试使用 pytest。
+第三方 Python 依赖；开发验证使用 Ruff 和 pytest。
 
 > 当前为 Alpha：离线 Agent 闭环已通过测试，但尚未宣称任何对比评测结果。
 
@@ -45,7 +45,7 @@ Agent 命令模板和公平比较约束见 [docs/evaluation.md](docs/evaluation.
 
 ```bash
 cd Yada
-uv sync --extra dev
+uv sync --locked --dev
 export DEEPSEEK_API_KEY="sk-..."
 
 uv run yada "修复 parser 的边界问题，并运行相关测试" \
@@ -123,19 +123,21 @@ Yada 提供 Guardrail，但不是完整的操作系统沙箱：
 仓库测试本身就是任意代码。陌生仓库应放在一次性 VM 或更强的沙箱中运行。
 Dockerfile 能限制文件系统暴露，但不会阻断容器网络。
 
-## 测试
+## 开发验证
 
 测试套件包含一个完全离线的 Fake Model 端到端流程，以及过期 Hash、路径
-逃逸、密钥环境变量和验证门槛测试：
+逃逸、密钥环境变量和验证门槛测试；Ruff 负责 Lint 和格式检查：
 
 ```bash
-uv sync --extra dev
-uv run pytest
+uv sync --locked --dev
+uv run --frozen ruff check .
+uv run --frozen ruff format --check .
+uv run --frozen pytest tests/ -v
 ```
 
-没有 uv 时，可使用 `python3 -m pip install -e ".[dev]"` 和
-`python3 -m pytest`。pytest 只是开发依赖，不会增加 Yada 的运行时依赖。fixture 复用临时 Git
-仓库，`monkeypatch` 显式控制环境变量，普通 `assert` 则提供更清楚的失败信息。
+CI 会在 Python 3.11 和 3.12 上运行同样的检查。没有 uv 时，可使用
+`python3 -m pip install -e .` 安装运行时项目，再单独安装 `pytest` 和 `ruff`
+并执行对应命令。它们只是开发依赖，不会增加 Yada 的运行时依赖。
 
 ## 项目结构
 
