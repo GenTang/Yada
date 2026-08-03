@@ -119,11 +119,14 @@ uv run yada eval \
 uv run yada-trace .yada/runs/20260801T120000.000000Z.jsonl
 uv run yada-trace eval-results/<run>.artifacts/yada-trace.jsonl --step 8
 uv run yada-trace eval-results/<run>.artifacts/yada-trace.jsonl --verbose
+uv run yada-trace TRACE.jsonl --events
 ```
 
-报告会汇总模型轮次、工具调用 ID、失败、协议提醒和最终验证状态。
-`--step` 和 `--verbose` 会展开脱敏后的模型消息、工具参数、Patch、stdout 和
-stderr。Debug trace 脱敏后仍可能包含源码和测试输出，应当作敏感 artifact 处理。
+默认报告会按 Agent step 归组模型请求、响应、规划决定和有序工具执行，并为
+step、模型调用、工具执行和协议事件显示真实 JSONL 行号。`--step` 和
+`--verbose` 会在分组内展开脱敏后的模型消息、工具参数、Patch、stdout 和
+stderr；`--events` 可切回带物理行号的平铺时间线。Debug trace 脱敏后仍可能
+包含源码和测试输出，应当作敏感 artifact 处理。
 
 ## 安全边界
 

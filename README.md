@@ -165,15 +165,19 @@ uv run yada-trace \
   --step 8
 uv run yada-trace eval-results/<task>__<UTC-time>.artifacts/yada-trace.jsonl \
   --verbose
+uv run yada-trace TRACE.jsonl --events
 ```
 
-The report correlates model requests, tool-call IDs, errors, reminders, and the
-final verification state into a compact timeline. `--step` and `--verbose`
-expand sanitized model messages, tool arguments, patches, stdout, and stderr.
-The source JSONL remains the durable, streaming-friendly record. Debug traces can
-contain source code and test output even after secret redaction, so handle them as
-sensitive artifacts. See [docs/tracing.md](docs/tracing.md) for the event
-reference, field-presence semantics, lifecycle, and `jq` recipes.
+The default report groups each model request, response, planning decision, and
+ordered tool executions into one agent step. Every summary includes physical
+JSONL line references so the source evidence is immediately reachable with tools
+such as `sed`. `--step` and `--verbose` expand sanitized model messages, tool
+arguments, patches, stdout, and stderr inside grouped steps; `--events` retains a
+line-prefixed flat timeline. The source JSONL remains the durable,
+streaming-friendly record. Debug traces can contain source code and test output
+even after secret redaction, so handle them as sensitive artifacts. See
+[docs/tracing.md](docs/tracing.md) for the event reference, field-presence
+semantics, lifecycle, and `jq` recipes.
 
 ## Safety model
 

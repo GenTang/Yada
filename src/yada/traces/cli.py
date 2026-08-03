@@ -14,7 +14,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(
         prog="yada-trace",
-        description="Summarize a Yada JSONL run as a correlated timeline.",
+        description="Summarize a Yada JSONL run as correlated agent steps.",
     )
     parser.add_argument("trace", type=Path, help="Path to a Yada JSONL trace.")
     parser.add_argument(
@@ -25,7 +25,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--verbose",
         action="store_true",
-        help="Expand event payloads for the complete timeline.",
+        help="Expand event payloads inside every grouped step.",
+    )
+    parser.add_argument(
+        "--events",
+        action="store_true",
+        help="Show the legacy flat event timeline with physical line numbers.",
     )
     return parser
 
@@ -39,6 +44,7 @@ def run_cli(argv: list[str] | None = None) -> int:
             args.trace.expanduser().resolve(),
             step=args.step,
             verbose=args.verbose,
+            events=args.events,
         )
     except (OSError, TraceFormatError) as exc:
         print(f"yada-trace: {exc}", file=sys.stderr)

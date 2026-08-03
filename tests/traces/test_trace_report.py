@@ -11,6 +11,8 @@ from yada.traces import (
     TRACE_SCHEMA_VERSION,
     TraceFormatError,
     TraceWriter,
+    build_trace_run,
+    read_located_trace,
     read_trace,
     reconstruct_model_request,
     render_trace_report,
@@ -55,7 +57,9 @@ def test_trace_events_have_correlation_metadata_and_redaction(tmp_path: Path) ->
     assert "Run: run-test" in report
     assert "Trace level: summary" in report
     assert "Outcome: unfinished" in report
-    assert "step=1 assistant duration=7ms" in report
+    assert "Step 1/1 — fake  7ms  12 tokens  [L2]" in report
+    assert "Model call  [request missing → response L2]" in report
+    assert "Reasoning: 13 chars" in report
 
 
 def test_debug_trace_includes_reasoning_and_redacts_common_secrets(
@@ -249,7 +253,8 @@ def test_report_marks_trace_without_run_end_as_interrupted(tmp_path: Path) -> No
     report = render_trace_report(path)
 
     assert "Outcome: interrupted (no run_end event)" in report
-    assert "model_error TimeoutError: timed out" in report
+    assert "Model call  [request missing → error L2]" in report
+    assert "Error: TimeoutError: timed out" in report
 
 
 def test_report_rejects_malformed_jsonl(tmp_path: Path) -> None:
@@ -270,3 +275,229 @@ def test_agent_clis_expose_trace_level() -> None:
     assert eval_args.trace_level == "debug"
     assert "--trace-reasoning" not in build_run_parser().format_help()
     assert "--trace-reasoning" not in build_eval_parser().format_help()
+
+
+def test_grouped_report_preserves_lines_and_multi_tool_order(tmp_path: Path) -> None:
+    path = tmp_path / "multi-tool.jsonl"
+    records = [
+        _record(
+            1,
+            "run_start",
+            {
+                "model": "deepseek-v4-pro",
+                "task": "fix parser",
+                "max_steps": 30,
+                "trace_level": "summary",
+            },
+        ),
+        _record(2, "model_request", {"step": 1, "request_id": "request-1"}),
+        _record(
+            3,
+            "assistant",
+            {
+                "step": 1,
+                "request_id": "request-1",
+                "duration_ms": 1800,
+                "finish_reason": "tool_calls",
+                "usage": {"total_tokens": 1246},
+                "message": {
+                    "reasoning_content": {"redacted": True, "chars": 381},
+                    "tool_calls": [],
+                },
+            },
+        ),
+        _record(4, "plan_decision", {"step": 1, "action": "execute_tools"}),
+        _record(
+            5,
+            "tool_call",
+            {"step": 1, "tool_call_id": "search", "tool": "search_code"},
+        ),
+        _record(
+            6,
+            "tool_call",
+            {"step": 1, "tool_call_id": "command", "tool": "run_command"},
+        ),
+        _record(
+            7,
+            "tool_result",
+            {
+                "step": 1,
+                "tool_call_id": "command",
+                "tool": "run_command",
+                "duration_ms": 37,
+                "result": {"ok": True, "exit_code": 1},
+            },
+        ),
+        _record(
+            8,
+            "tool_result",
+            {
+                "step": 1,
+                "tool_call_id": "search",
+                "tool": "search_code",
+                "duration_ms": 42,
+                "result": {"ok": True},
+            },
+        ),
+        _record(9, "run_end", {"finished": True, "steps": 1}),
+    ]
+    path.write_text(
+        json.dumps(records[0])
+        + "\n\n"
+        + "\n".join(json.dumps(record) for record in records[1:])
+        + "\n",
+        encoding="utf-8",
+    )
+
+    located = read_located_trace(path)
+    run = build_trace_run(located)
+    report = render_trace_report(path)
+
+    assert [event.line_number for event in located[:3]] == [1, 3, 4]
+    assert "line_number" not in read_trace(path)[1]
+    assert run.steps[0].first_line == 3
+    assert run.steps[0].last_line == 9
+    assert "Step 1/30 — deepseek-v4-pro  1.8s  1,246 tokens  [L3–L9]" in report
+    assert "Model call  [request L3 → response L4]" in report
+    assert "Finish reason: tool_calls" in report
+    assert "Reasoning: 381 chars" in report
+    assert "Plan: execute_tools  [L5]" in report
+    search = "[ok] search_code  42ms  [call L6 → result L9]"
+    command = "[ok] run_command  37ms  exit=1  [call L7 → result L8]"
+    assert search in report
+    assert command in report
+    assert report.index(search) < report.index(command)
+
+
+def test_report_marks_missing_model_response_and_tool_result(tmp_path: Path) -> None:
+    path = tmp_path / "interrupted.jsonl"
+    records = [
+        _record(1, "run_start", {"model": "fake", "max_steps": 30}),
+        _record(2, "model_request", {"step": 7, "request_id": "request-7"}),
+        _record(
+            3,
+            "tool_call",
+            {"step": 7, "tool_call_id": "orphan", "tool": "read_file"},
+        ),
+    ]
+    path.write_text(
+        "\n".join(json.dumps(record) for record in records) + "\n",
+        encoding="utf-8",
+    )
+
+    report = render_trace_report(path)
+
+    assert "Step 7/30 — interrupted  [L2–L3]" in report
+    assert "Model call  [request L2 → response missing]" in report
+    assert "[missing] read_file  [call L3 → result missing]" in report
+
+
+def test_protocol_violation_and_failed_tool_keep_line_references(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "violation.jsonl"
+    records = [
+        _record(1, "model_request", {"step": 2, "request_id": "request-2"}),
+        _record(
+            2,
+            "assistant",
+            {
+                "step": 2,
+                "request_id": "request-2",
+                "duration_ms": 5,
+                "finish_reason": "tool_calls",
+                "message": {"reasoning_content": "bad call"},
+            },
+        ),
+        _record(
+            3,
+            "plan_decision",
+            {
+                "step": 2,
+                "action": "execute_tools",
+                "rejection_error": "duplicate finish calls",
+            },
+        ),
+        _record(
+            4,
+            "protocol_violation",
+            {"step": 2, "error": "duplicate finish calls"},
+        ),
+        _record(
+            5,
+            "tool_call",
+            {"step": 2, "tool_call_id": "bad", "tool": "finish"},
+        ),
+        _record(
+            6,
+            "tool_result",
+            {
+                "step": 2,
+                "tool_call_id": "bad",
+                "tool": "finish",
+                "duration_ms": 0,
+                "result": {"ok": False, "error": "duplicate finish calls"},
+            },
+        ),
+        _record(
+            7,
+            "protocol_reminder",
+            {"step": 2, "text": "use the required tool protocol"},
+        ),
+    ]
+    path.write_text(
+        "\n".join(json.dumps(record) for record in records) + "\n",
+        encoding="utf-8",
+    )
+
+    report = render_trace_report(path)
+
+    assert "Plan: execute_tools  [L3]" in report
+    assert "Protocol violation: duplicate finish calls  [L4]" in report
+    assert "Protocol reminder: use the required tool protocol  [L7]" in report
+    assert "[error] finish  0ms  [call L5 → result L6]" in report
+
+
+def test_step_verbose_events_and_flat_event_mode_use_physical_lines(
+    tmp_path: Path, capsys
+) -> None:
+    path = tmp_path / "expanded.jsonl"
+    path.write_text(
+        json.dumps(_record(10, "model_request", {"step": 3, "request_id": "r"}))
+        + "\n\n"
+        + json.dumps(
+            _record(
+                11,
+                "assistant",
+                {
+                    "request_id": "r",
+                    "finish_reason": "stop",
+                    "message": {"content": "done"},
+                },
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    detail = render_trace_report(path, step=3)
+    flat = render_trace_report(path, events=True)
+
+    assert "L1 model_request  sequence=10" in detail
+    assert "L3 assistant  sequence=11" in detail
+    assert "Model call  [request L1 → response L3]" in detail
+    assert "L1 [ 10" in flat
+    assert "L3 [ 11" in flat
+    assert run_cli([str(path), "--events"]) == 0
+    assert "L3 [ 11" in capsys.readouterr().out
+
+
+def _record(sequence: int, event: str, data: dict) -> dict:
+    return {
+        "schema_version": TRACE_SCHEMA_VERSION,
+        "run_id": "test-run",
+        "sequence": sequence,
+        "elapsed_ms": sequence,
+        "event": event,
+        "data": data,
+    }

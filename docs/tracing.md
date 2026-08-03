@@ -44,6 +44,13 @@ run_end
 - A transport exception or process interruption can leave a trace without
   `run_end`. Readers should report this as interrupted, not successful.
 
+The reporting layer normalizes these records into `TraceRun`, `TraceStep`,
+`TraceToolExecution`, and `LocatedTraceEvent` objects. A located event pairs the
+unchanged persisted record with its physical JSONL line number. The public
+`read_trace()` API still returns the original event dictionaries; source location
+metadata is available through `read_located_trace()` and is never written back to
+JSONL.
+
 ## Core events
 
 | Event | Cardinality and meaning | Important `data` fields |
@@ -110,6 +117,23 @@ Render a run summary or expand one step:
 uv run yada-trace TRACE.jsonl
 uv run yada-trace TRACE.jsonl --step 12
 uv run yada-trace TRACE.jsonl --verbose
+uv run yada-trace TRACE.jsonl --events
+```
+
+The default view groups events by agent step. Step headings show the complete
+physical line range, model calls identify their request and response lines, and
+tool executions identify their call and result lines. Protocol reminders and
+violations also carry line references. Blank JSONL lines still count as physical
+lines, while `sequence` remains the deterministic event-order field; the two are
+not interchangeable. `--events` keeps the previous flat timeline shape and
+prefixes every event with its physical line.
+
+Once a report identifies a suspicious step or tool execution, inspect the exact
+source records directly:
+
+```bash
+sed -n '31p' TRACE.jsonl
+sed -n '33,34p' TRACE.jsonl
 ```
 
 List event counts:
