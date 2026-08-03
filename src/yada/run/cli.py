@@ -12,7 +12,7 @@ from yada.agents import Agent
 from yada.models import DeepSeekAPIError, DeepSeekClient
 from yada.tools import ToolRunner
 from yada.traces import TraceWriter
-from yada.utils.naming import readable_run_name
+from yada.utils.naming import next_available_run_name, readable_run_name
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -67,7 +67,7 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help=(
             "JSONL trace path (default: "
-            "WORKSPACE/.yada/runs/<task>__<readable-UTC-time>.jsonl)."
+            "WORKSPACE/.yada/runs/<task>__<system-local-time>.jsonl)."
         ),
     )
     parser.add_argument(
@@ -183,7 +183,13 @@ def run_cli(argv: list[str] | None = None) -> int:
 
 
 def _default_trace_path(workspace: Path, task: str) -> Path:
-    return workspace / ".yada" / "runs" / f"{readable_run_name(task)}.jsonl"
+    directory = workspace / ".yada" / "runs"
+    run_name = next_available_run_name(
+        directory,
+        readable_run_name(task),
+        suffixes=(".jsonl",),
+    )
+    return directory / f"{run_name}.jsonl"
 
 
 def main() -> None:

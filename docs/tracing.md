@@ -104,12 +104,14 @@ output.
 
 ## Inspection recipes
 
-Default paths include a sanitized task name and a readable UTC timestamp. A
-direct run resembles
-`.yada/runs/fix-parser-boundary-issue__2026-08-02_12-26-26.123456Z.jsonl`.
-An evaluation stores its trace under a directory such as
-`eval-results/pytest-dev__pytest-10051__2026-08-02_12-26-26.123456Z.artifacts/`.
-Explicit `--trace`, `--output`, and `--artifact-dir` values are never renamed.
+Default paths include a sanitized task name and the system-local time at minute
+precision. A direct run resembles
+`.yada/runs/fix-parser-boundary-issue__2026-08-02_20-26.jsonl`. An evaluation
+stores its trace under a directory such as
+`eval-results/pytest-dev__pytest-10051__2026-08-02_20-26.artifacts/`. When a
+default name already exists, Yada adds `(1)`, `(2)`, and so on before the output
+suffix. The result JSON and artifacts directory share the same number. Explicit
+`--trace`, `--output`, and `--artifact-dir` values are never renamed.
 
 Render a run summary or expand one step:
 

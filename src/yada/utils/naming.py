@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from datetime import datetime, timezone
+from datetime import datetime
+from pathlib import Path
 
 _WINDOWS_RESERVED_NAMES = {
     "aux",
@@ -34,10 +35,33 @@ def task_slug(task: str, *, max_length: int = 48) -> str:
 
 
 def readable_run_name(task: str, *, now: datetime | None = None) -> str:
-    """Combine a task slug with a sortable, readable UTC timestamp."""
+    """Combine a task slug with the system-local time at minute precision."""
 
-    instant = now or datetime.now(timezone.utc)
-    if instant.tzinfo is None:
-        instant = instant.replace(tzinfo=timezone.utc)
-    timestamp = instant.astimezone(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S.%fZ")
+    instant = now or datetime.now().astimezone()
+    timestamp = instant.strftime("%Y-%m-%d_%H-%M")
     return f"{task_slug(task)}__{timestamp}"
+
+
+def next_available_run_name(
+    directory: Path,
+    base_name: str,
+    *,
+    suffixes: tuple[str, ...],
+) -> str:
+    """Return a run name unused by every related output suffix.
+
+    The first collision appends ``(1)`` before the suffix, followed by ``(2)``
+    and so on. Checking all related suffixes keeps an evaluation result JSON and
+    its artifacts directory on the same collision number.
+    """
+
+    if not suffixes:
+        raise ValueError("at least one output suffix is required")
+    number = 0
+    while True:
+        candidate = base_name if number == 0 else f"{base_name}({number})"
+        if all(
+            not (directory / f"{candidate}{suffix}").exists() for suffix in suffixes
+        ):
+            return candidate
+        number += 1
