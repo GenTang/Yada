@@ -77,7 +77,14 @@ class ToolRunner:
                 raise ToolError(f"unknown tool: {name}")
             data = handler(self.context, **arguments)
             return ToolExecution({"ok": True, **data})
-        except (ToolError, TypeError, ValueError) as exc:
+        except ToolError as exc:
+            observation: dict[str, Any] = {"ok": False, "error": str(exc)}
+            if exc.error_code is not None:
+                observation["error_code"] = exc.error_code
+            if exc.details is not None:
+                observation["details"] = exc.details
+            return ToolExecution(observation)
+        except (TypeError, ValueError) as exc:
             return ToolExecution({"ok": False, "error": str(exc)})
 
     def final_state(self) -> dict[str, Any]:
