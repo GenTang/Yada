@@ -1,7 +1,7 @@
 # Yada architecture
 
 Yada is a deliberately small DeepSeek-native coding harness: one model loop,
-five tools, an append-only conversation, checked patch application, and a
+six tools, an append-only conversation, checked patch application, and a
 verification gate. This document describes the internal boundaries contributors
 must preserve.
 
@@ -34,7 +34,7 @@ run/cli.py
     │   │   └── tools/runner.py
     │   │       ├── environments/workspace.py
     │   │       ├── environments/approval.py
-    │   │       └── tools/{search,read,patch,command,finish}.py
+    │   │       └── tools/{search,read,replace,patch,command,finish}.py
     │   ├── models/base.py ← models/deepseek.py
     │   └── traces/jsonl.py ← traces/report.py
     └── evals/cli.py
@@ -94,12 +94,13 @@ without weakening the workspace and tool contracts.
 
 ## Tool system
 
-Yada exposes five tools:
+Yada exposes six tools:
 
 | Tool | Responsibility |
 | --- | --- |
 | `search_code` | Search repository text with ripgrep and a Python fallback. |
 | `read_file` | Return bounded, numbered text plus a SHA-256 content hash. |
+| `replace_text` | Apply exact unique replacements to existing UTF-8 files. |
 | `apply_patch` | Validate and apply a Git-style unified diff. |
 | `run_command` | Run an approved argv array and return bounded structured output. |
 | `finish` | End only after verification of the latest revision. |
@@ -125,6 +126,12 @@ Patch application is intentionally stricter than ordinary text replacement:
 This is an optimistic transaction: a file changed after the model read it is a
 conflict, not permission to apply a stale edit. Every successful patch increments
 the workspace revision and invalidates earlier verification.
+
+`replace_text` uses the same transaction rather than introducing another write
+path. It validates every SHA and exact unique match in memory, applies same-file
+edits in declaration order, generates a standard-library unified diff, and sends
+the complete result through `apply_patch`. Zero or ambiguous matches fail closed;
+no file changes until the generated multi-file patch passes validation.
 
 ## Commands and verification
 

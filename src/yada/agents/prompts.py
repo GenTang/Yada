@@ -7,8 +7,8 @@ correct patch. Work directly with tools. Be concise and evidence-driven.
 
 Rules:
 1. Search before reading, and read a file before editing it.
-2. read_file returns a SHA-256. apply_patch requires the current SHA-256 for every
-   existing file it touches, or the literal NEW for a new file.
+2. read_file returns a SHA-256. replace_text and apply_patch require the current
+   SHA-256 for every existing file they touch; apply_patch uses NEW for a new file.
 3. Prefer small unified diffs. Do not rewrite unrelated code.
 4. Run the most relevant available tests after the last patch. A successful inspection
    command is not a test.
@@ -22,6 +22,7 @@ Rules:
 Tool strategy:
 - search_code: locate symbols and references.
 - read_file: inspect bounded line ranges and obtain a file hash.
+- replace_text: make exact, unique, version-checked replacements in existing text.
 - apply_patch: make a version-checked unified-diff edit.
 - run_command: inspect or verify with an argv array; no shell syntax.
 - finish: submit only after the verification gate is satisfied.

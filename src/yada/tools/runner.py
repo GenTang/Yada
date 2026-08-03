@@ -12,6 +12,7 @@ from yada.tools.command import run_command
 from yada.tools.finish import final_state, finish
 from yada.tools.patch import apply_patch
 from yada.tools.read import read_file
+from yada.tools.replace import replace_text
 from yada.tools.schemas import TOOL_SCHEMAS
 from yada.tools.search import search_code
 
@@ -42,6 +43,7 @@ class ToolRunner:
             "search_code": search_code,
             "read_file": read_file,
             "apply_patch": apply_patch,
+            "replace_text": replace_text,
             "run_command": run_command,
         }
 

@@ -1,4 +1,4 @@
-"""Stable DeepSeek function schemas for Yada's five tools."""
+"""Stable DeepSeek function schemas for Yada's six tools."""
 
 from __future__ import annotations
 
@@ -75,6 +75,41 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                     },
                 },
                 "required": ["patch", "expected_files"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "replace_text",
+            "description": "Replace exact unique text in existing UTF-8 files as one SHA-bound transaction. Edits to the same file run in declared order.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "edits": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 100,
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "path": {"type": "string"},
+                                "sha256": {"type": "string"},
+                                "old_text": {"type": "string"},
+                                "new_text": {"type": "string"},
+                            },
+                            "required": [
+                                "path",
+                                "sha256",
+                                "old_text",
+                                "new_text",
+                            ],
+                            "additionalProperties": False,
+                        },
+                    }
+                },
+                "required": ["edits"],
                 "additionalProperties": False,
             },
         },
