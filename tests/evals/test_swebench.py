@@ -254,7 +254,13 @@ def test_swebench_agent_image_metadata_comes_from_harness(monkeypatch) -> None:
 def test_streaming_process_tees_live_output_and_heartbeat(tmp_path: Path) -> None:
     stdout_path = tmp_path / "image.stdout.log"
     stderr_path = tmp_path / "image.stderr.log"
+    heartbeat_seen = tmp_path / "heartbeat-seen"
     messages: list[str] = []
+
+    def emit(message: str) -> None:
+        messages.append(message)
+        if "still running" in message:
+            heartbeat_seen.write_text("seen", encoding="utf-8")
 
     process = _run_streaming(
         [
@@ -262,17 +268,21 @@ def test_streaming_process_tees_live_output_and_heartbeat(tmp_path: Path) -> Non
             "-u",
             "-c",
             (
-                "import sys, time; "
-                "print('building base image'); "
-                "print('download warning', file=sys.stderr); "
-                "time.sleep(0.1); "
-                "print('building instance image')"
+                "import pathlib, sys, time\n"
+                "heartbeat = pathlib.Path(sys.argv[1])\n"
+                "print('building base image')\n"
+                "print('download warning', file=sys.stderr)\n"
+                "deadline = time.monotonic() + 2\n"
+                "while not heartbeat.exists() and time.monotonic() < deadline:\n"
+                "    time.sleep(0.01)\n"
+                "print('building instance image')\n"
             ),
+            str(heartbeat_seen),
         ],
         timeout=5,
         stdout_path=stdout_path,
         stderr_path=stderr_path,
-        emit=messages.append,
+        emit=emit,
         heartbeat_seconds=0.02,
     )
 
