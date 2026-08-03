@@ -20,6 +20,11 @@ project does not claim a comparative benchmark result yet.
 - [uv](https://docs.astral.sh/uv/) (recommended)
 - A DeepSeek API key
 
+Docker is optional for direct runs and `yada eval --case`. Official
+`yada eval --swebench` runs require a running, maintained Docker Desktop or
+Docker Engine release; see [Docker requirements](docs/configuration.md#docker-requirements)
+for installation, verification, version policy, and resource guidance.
+
 ## Quick start
 
 ```bash
@@ -54,6 +59,8 @@ complete OS sandbox; use a disposable VM or container for unfamiliar projects.
 - [Configuration](docs/configuration.md): installation alternatives, API key,
   model settings, command policy, and trace levels.
 - [CLI reference](docs/cli-reference.md): `yada`, `yada eval`, and `yada-trace`.
+- [Evaluation lifecycle](docs/evaluation.md): what `--case` and `--swebench`
+  load, mutate, cache, grade, and write.
 - [Contributing](CONTRIBUTING.md): development setup, validation, and the rebase
   pull-request workflow.
 - [Architecture](docs/dev/architecture.md): agent loop, tools, patch transaction,

@@ -23,3 +23,8 @@ Cases under `swebench_verified/` use the canonical public problem statement and
 base commit. Their local grader is intended for fast development feedback. A
 published SWE-bench score must still come from the official Docker Harness.
 
+This local path is intentional rather than a duplicate of `--swebench`: it
+keeps prompt and tool regression tests fast, inspectable, and usable without
+Docker. Use `--swebench INSTANCE_ID` when environment parity and an
+official-compatible verdict matter; Yada then requires Docker before model
+inference and separates the Agent command container from the final grader.

@@ -5,7 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable
 
-from yada.environments import CommandApprover, Workspace
+from yada.environments import (
+    CommandApprover,
+    CommandExecutor,
+    LocalCommandExecutor,
+    Workspace,
+)
 from yada.exceptions import ToolError
 from yada.tools.base import ToolContext, ToolExecution
 from yada.tools.command import run_command
@@ -30,6 +35,7 @@ class ToolRunner:
         command_timeout_seconds: int = 120,
         max_output_chars: int = 12_000,
         command_environment: dict[str, str] | None = None,
+        command_executor: CommandExecutor | None = None,
         approver: CommandApprover | None = None,
     ) -> None:
         self.context = ToolContext(
@@ -38,6 +44,7 @@ class ToolRunner:
             command_timeout_seconds=command_timeout_seconds,
             max_output_chars=max_output_chars,
             command_environment=dict(command_environment or {}),
+            command_executor=command_executor or LocalCommandExecutor(),
         )
         self._handlers: dict[str, ToolHandler] = {
             "search_code": search_code,
@@ -93,3 +100,8 @@ class ToolRunner:
         """Collect the bounded Git status and diff used in the final result."""
 
         return final_state(self.context)
+
+    def close(self) -> None:
+        """Release resources owned by the configured command backend."""
+
+        self.context.command_executor.close()

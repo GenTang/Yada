@@ -34,6 +34,7 @@ run/cli.py
     │   │   └── tools/runner.py
     │   │       ├── environments/workspace.py
     │   │       ├── environments/approval.py
+    │   │       ├── environments/commands.py
     │   │       └── tools/{search,read,replace,patch,command,finish}.py
     │   ├── models/base.py ← models/deepseek.py
     │   └── traces/jsonl.py ← traces/report.py
@@ -46,7 +47,7 @@ run/cli.py
 - `run`: parses public configuration and assembles a direct run.
 - `agents`: coordinates model turns, planning policy, and tool execution.
 - `models`: defines the completion boundary and DeepSeek transport.
-- `environments`: owns workspace containment and command approval.
+- `environments`: owns workspace containment, command approval, and execution backends.
 - `tools`: implements one handler per model-facing tool.
 - `traces`: writes append-only events and builds source-located reports.
 - `evals`: composes benchmark preparation/grading with interchangeable agents.
@@ -137,8 +138,13 @@ no file changes until the generated multi-file patch passes validation.
 
 `run_command` accepts argv, not a shell string. It checks the executable
 allowlist, disables shell `-c`, restricts Git to read-only subcommands, applies
-the configured approval policy, sanitizes secret-looking environment variables,
-and separately records stdout, stderr, exit code, timeout, and duration.
+the configured approval policy, and then delegates execution to a small backend
+interface. Direct runs and local cases use the host backend. Official
+SWE-bench runs use a persistent ephemeral container made from the task's public
+instance image, with the mutable workspace mounted at `/testbed`. Neither
+backend adds a Python runtime dependency to Yada's core. Both sanitize
+secret-looking environment variables and return stdout, stderr, exit code,
+timeout, and duration through the same tool result.
 
 The model labels a command as `inspect`, `test`, or `build`. Only a successful
 `test` or `build` verifies the current workspace revision. `finish` rejects the
@@ -191,11 +197,29 @@ external agents. Local and SWE-bench benchmark adapters own provenance, hidden
 grading inputs, and the final verdict. Gold patches and hidden tests never cross
 the public task boundary.
 
+The official SWE-bench adapter deliberately uses two Docker lifetimes:
+
+```text
+public instance image
+        ├── export /testbed ── host artifact workspace ── file tools
+        └── ephemeral Agent container ─────────────────── run_command
+
+collected model patch
+        └── independent Harness container + evaluation patch ── verdict
+```
+
+The Agent container and grader container are never the same container. The
+first contains only public repository setup; the second is created after the
+agent stops and is the only environment that receives evaluation tests. A
+Docker preflight happens during official task loading, before model inference.
+Local cases do not use this backend unless their own manifest commands do so.
+
 Fair comparisons use the same instance, base commit, public prompt, model
 endpoint, token/cost and wall-time budgets, network policy, and official grader.
 Resolve rate is the primary outcome; tokens, steps, duration, and cost are
 diagnostics. See [CLI reference: `yada eval`](../cli-reference.md#yada-eval) for
-manifest and command examples.
+command examples and [Evaluation lifecycle](../evaluation.md) for the exact
+load, workspace, grading, cache, and artifact sequence.
 
 ## Core invariants
 
@@ -208,13 +232,18 @@ manifest and command examples.
 7. `finish` requires verification of the latest revision.
 8. Trace events are append-only and self-correlating.
 9. Benchmark grading happens outside the agent's tool boundary.
+10. Hidden grading inputs never enter the official Agent command container.
 
 ## Security boundary
 
 Yada's path checks, argv policy, environment sanitization, and approval gate
-reduce accidental damage; they do not isolate arbitrary repository code. Test
-runners, interpreters, build systems, dependencies, and scripts can access the
-host permissions available to the process.
+reduce accidental damage. Direct runs and local cases still do not isolate
+arbitrary repository code: test runners, interpreters, build systems,
+dependencies, and scripts can access the host permissions available to the
+process.
 
-Production evaluation should put each candidate workspace in a disposable
-container or VM and run hidden grading outside the agent environment.
+Native official SWE-bench commands run in a disposable container and hidden
+grading runs in a second one. This reduces host-environment drift and prevents
+the agent from observing grading inputs, but a Docker daemon and bind-mounted
+workspace remain privileged infrastructure rather than a complete security
+boundary.

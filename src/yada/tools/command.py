@@ -2,16 +2,13 @@
 
 from __future__ import annotations
 
-import os
-import subprocess
 import time
-from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 from yada.exceptions import ToolError
 from yada.tools.base import ToolContext
-from yada.utils.text import timeout_text, truncate_text
+from yada.utils.text import truncate_text
 
 ALLOWED_EXECUTABLES = {
     "bash",
@@ -99,29 +96,18 @@ def run_command(
     effective_timeout = timeout_seconds or context.command_timeout_seconds
     if not isinstance(effective_timeout, int) or not 1 <= effective_timeout <= 1800:
         raise ToolError("timeout_seconds must be between 1 and 1800")
-    env = _sanitized_environment()
-    env.update(_sanitized_values(context.command_environment))
-    env["YADA_WORKSPACE"] = str(context.workspace.root)
     started = time.monotonic()
-    try:
-        result = subprocess.run(
-            argv,
-            cwd=command_cwd,
-            env=env,
-            text=True,
-            capture_output=True,
-            timeout=effective_timeout,
-            check=False,
-        )
-        timed_out = False
-        exit_code = result.returncode
-        stdout = result.stdout
-        stderr = result.stderr
-    except subprocess.TimeoutExpired as exc:
-        timed_out = True
-        exit_code = 124
-        stdout = timeout_text(exc.stdout)
-        stderr = timeout_text(exc.stderr) + f"\nTimed out after {effective_timeout}s"
+    result = context.command_executor.run(
+        argv=argv,
+        workspace=context.workspace.root,
+        cwd=command_cwd,
+        environment=context.command_environment,
+        timeout_seconds=effective_timeout,
+    )
+    timed_out = result.timed_out
+    exit_code = result.exit_code
+    stdout = result.stdout
+    stderr = result.stderr
     duration_ms = round((time.monotonic() - started) * 1000)
     stdout_text, stdout_truncated = truncate_text(stdout, context.max_output_chars)
     stderr_text, stderr_truncated = truncate_text(stderr, context.max_output_chars)
@@ -153,17 +139,5 @@ def run_command(
             if context.state.verified_revision >= 0
             else None
         ),
-    }
-
-
-def _sanitized_environment() -> dict[str, str]:
-    return _sanitized_values(os.environ)
-
-
-def _sanitized_values(values: Mapping[str, str]) -> dict[str, str]:
-    secret_markers = ("API_KEY", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL")
-    return {
-        key: value
-        for key, value in values.items()
-        if not any(marker in key.upper() for marker in secret_markers)
+        "environment": context.command_executor.name,
     }

@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Callable
 
 from yada.agents import Agent
-from yada.environments import CommandApprover
+from yada.environments import CommandApprover, CommandExecutor, DockerCommandExecutor
 from yada.evals.base import AgentRunResult, PreparedTask, RunBudget
 from yada.evals.patches import collect_git_patch
 from yada.models import CompletionClient, DeepSeekClient
@@ -74,7 +74,9 @@ class YadaAgentAdapter:
             approver=CommandApprover(self.command_policy),
             command_timeout_seconds=self.command_timeout_seconds,
             command_environment=_task_environment(prepared),
+            command_executor=_task_command_executor(prepared),
         )
+        command_provenance = _command_provenance(prepared, tools)
         agent = Agent(
             client=client,
             tools=tools,
@@ -84,23 +86,36 @@ class YadaAgentAdapter:
             ),
             max_steps=budget.max_steps,
             emit=self.emit,
-            trace_metadata={"case_id": prepared.task.instance_id},
+            trace_metadata={
+                "case_id": prepared.task.instance_id,
+                **command_provenance,
+            },
         )
 
         started = time.monotonic()
         try:
-            native_result = agent.run(prepared.task.problem_statement)
-            status = "completed" if native_result.finished else "unfinished"
-            summary = native_result.summary
-            usage = native_result.usage
-            steps = native_result.steps
-            details = {"finished": native_result.finished}
-        except Exception as exc:
-            status = "error"
-            summary = f"{type(exc).__name__}: {exc}"
-            usage = {}
-            steps = None
-            details = {"error_type": type(exc).__name__, "error": str(exc)}
+            try:
+                native_result = agent.run(prepared.task.problem_statement)
+                status = "completed" if native_result.finished else "unfinished"
+                summary = native_result.summary
+                usage = native_result.usage
+                steps = native_result.steps
+                details = {
+                    "finished": native_result.finished,
+                    **command_provenance,
+                }
+            except Exception as exc:
+                status = "error"
+                summary = f"{type(exc).__name__}: {exc}"
+                usage = {}
+                steps = None
+                details = {
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                    **command_provenance,
+                }
+        finally:
+            tools.close()
 
         return AgentRunResult(
             agent=self.name,
@@ -125,3 +140,36 @@ def _task_environment(prepared: PreparedTask) -> dict[str, str]:
         for key, item in value.items()
         if isinstance(key, str) and isinstance(item, str)
     }
+
+
+def _task_command_executor(prepared: PreparedTask) -> CommandExecutor | None:
+    value = prepared.metadata.get("command_backend")
+    if value is None:
+        return None
+    if not isinstance(value, dict) or value.get("type") != "docker":
+        raise ValueError("prepared command_backend must have type='docker'")
+    image = value.get("image")
+    workdir = value.get("workdir", "/testbed")
+    platform = value.get("platform")
+    if not isinstance(image, str) or not image.strip():
+        raise ValueError("Docker command backend requires an image")
+    if not isinstance(workdir, str) or not workdir.startswith("/"):
+        raise ValueError("Docker command backend requires an absolute workdir")
+    if platform is not None and not isinstance(platform, str):
+        raise ValueError("Docker command backend platform must be a string")
+    return DockerCommandExecutor(
+        image,
+        container_workspace=workdir,
+        platform=platform,
+    )
+
+
+def _command_provenance(
+    prepared: PreparedTask,
+    tools: ToolRunner,
+) -> dict[str, str]:
+    provenance = {"command_environment": tools.context.command_executor.name}
+    backend = prepared.metadata.get("command_backend")
+    if isinstance(backend, dict) and isinstance(backend.get("image"), str):
+        provenance["command_image"] = backend["image"]
+    return provenance

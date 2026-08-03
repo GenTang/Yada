@@ -53,48 +53,85 @@ keyboard interruption. Argument errors also use the standard argparse status `2`
 ## `yada eval`
 
 `yada eval` runs an agent behind a benchmark-neutral adapter and persists a
-schema-versioned result even for ordinary adapter failures.
+schema-versioned result even for ordinary adapter failures. Unlike a direct
+`yada` run, an evaluation always has a task adapter and a grader.
+See [Evaluation lifecycle](evaluation.md) for the complete load, workspace,
+agent, grading, cache, and artifact sequence.
 
-### Checked-in development case
+### Choose a run mode
+
+```mermaid
+flowchart TD
+    start{"What do you want to run?"}
+    start -->|"Edit one repository"| direct["yada TASK --workspace REPO"]
+    start -->|"Run a reproducible evaluation"| eval["yada eval"]
+
+    eval --> source{"Which task source?"}
+    source -->|"Checked-in case directory"| case["--case PATH"]
+    source -->|"Official SWE-bench Verified"| swe["--swebench INSTANCE_ID"]
+
+    case --> local_adapter["Local adapter\ncase.json + host/uv environment"]
+    local_adapter --> local_result["Development/private result\nnot an official SWE-bench score"]
+
+    swe --> agent_container["Public instance image\nAgent commands in Docker"]
+    agent_container --> official["Separate official Harness\ngrading container"]
+    official --> official_result["Official-compatible SWE-bench result"]
+```
+
+`yada eval` deliberately exposes only two task selectors:
+
+| Invocation | Meaning | Native Yada command environment | Grader |
+| --- | --- | --- | --- |
+| `--case PATH` | Run a portable local case. A directory resolves to `PATH/case.json`; a manifest file may also be passed directly. | Host/uv environment declared by the case; Docker is not required by Yada | Command declared by the case manifest |
+| `--swebench INSTANCE_ID` | Load one SWE-bench Verified task and generate an official-compatible prediction. | Public SWE-bench instance image in Docker | Separate official SWE-bench Harness container |
+
+There is no `--local`, `--benchmark`, or separate `--manifest` selector. Pass a
+custom manifest directly to `--case`. A case is called local because its
+manifest controls preparation and grading; it may still fetch a Git repository
+and call the DeepSeek API. Each invocation runs exactly one task.
+
+#### Why `--case` is not redundant
+
+`--case` is the small, no-Docker evaluation path for prompt/tool regression,
+private repositories, and custom test subsets. It is fast, inspectable, and can
+run from fully local inputs. Its verdict belongs to the manifest and must not be
+published as an official SWE-bench score.
+
+`--swebench` is the comparability path. It fixes the dataset and Harness policy,
+requires a running Docker daemon before the first model request, runs native
+Yada commands in the public instance image, and grades the patch in an
+independent container that receives the evaluation tests. Collapsing these
+selectors would either force Docker onto ordinary Yada development or make
+local and official-looking results dangerously easy to confuse.
+
+### Checked-in development case (`--case`)
+
+Use a checked-in case for fast development and regression testing:
 
 ```bash
 uv run yada eval \
   --case benchmarks/swebench_verified/pytest-10051 \
   --agent yada \
-  --yes
+  --yes \
+  --trace-level debug
 ```
 
 The first run fetches the pinned pytest commit and builds the case's locked
 Python environment. Later runs reuse caches but create a fresh agent workspace.
-This local grader is a development feedback loop, not an official SWE-bench
-Docker score.
+The case's grader is a development feedback loop, not the official SWE-bench
+Docker grader, even though the task originated in SWE-bench Verified.
 
-### Common options
+For a private or machine-local task, pass its manifest through the same entry
+point:
 
-| Option | Meaning | Default |
-| --- | --- | --- |
-| `--benchmark local\|swebench` | Benchmark adapter. | Inferred from `--case`, otherwise required |
-| `--case PATH` | Portable local case directory or `case.json`. | — |
-| `--instance ID` | Benchmark instance ID. | Manifest ID for local cases |
-| `--agent yada\|command` | Agent adapter. | `yada` |
-| `--output PATH` | Result JSON path. | `eval-results/<task>__<time>.json` |
-| `--artifact-dir PATH` | Workspace, logs, patch, trace, and grader artifacts. | Sibling `<result>.artifacts` |
-| `--run-id ID` | Stable correlation ID. | Generated |
-| `--max-steps N` | Model-turn budget. | `30` |
-| `--wall-time SECONDS` | Comparable wall-time budget. | `1800` |
-| `--max-output-tokens N` | Per-completion token limit. | `16384` |
+```bash
+uv run yada eval \
+  --case /path/to/task.local.json \
+  --agent yada \
+  --yes
+```
 
-The native agent also accepts the model, thinking, timeout, command-policy, and
-trace-level options documented for `yada`. A deployment-level supervisor should
-enforce a hard wall-time limit for an in-process native agent.
-
-Evaluation exits with `0` for `resolved`, `1` for `unresolved`, and `2` for
-errors or non-verdict outcomes such as skipped grading.
-
-### Local manifest
-
-Use `--benchmark local --manifest FILE` for a private or machine-local task.
-A minimal version 1 manifest is:
+A minimal version 1 case manifest is:
 
 ```json
 {
@@ -151,14 +188,80 @@ Portable Git checkouts are cached under `--cache-dir` (default
 `.yada/cache/evals`) but never used directly as the mutable agent workspace.
 `install_workspace` accepts `editable` and `legacy-editable`.
 
-### External command agent
+### Official SWE-bench evaluation (`--swebench`)
+
+The official SWE-bench Harness is the single source for public instance
+metadata, the public instance image, and Docker grading. `--swebench` does not
+read the checked-in local case's `instance.json`, so there are no local and
+online copies to keep in sync. Gold patches, test patches, and hidden test IDs
+do not cross the public task boundary.
+
+Install and start a maintained Docker Desktop or Docker Engine release, then
+verify both `docker --version` and `docker info`. SWE-bench 4.1.0 does not state
+an exact minimum Docker version, so Yada checks working client/daemon behavior
+instead of enforcing an invented version number. Legacy Docker Toolbox and
+obsolete standalone clients are unsupported. See
+[Docker requirements](configuration.md#docker-requirements) for installation,
+platform checks, and resource guidance.
+
+The official `swebench` package is published on PyPI, so no SWE-bench Git clone
+or separately managed virtual environment is needed. Use uv's cached dependency
+overlay to run the pinned Harness version:
+
+```bash
+uv run --with 'swebench==4.1.0' yada eval \
+  --swebench pytest-dev__pytest-10051 \
+  --agent yada \
+  --yes \
+  --trace-level debug
+```
+
+The first run downloads the Harness and its dependencies into uv's cache;
+subsequent runs reuse them. This keeps Yada's core dependency-free and leaves
+the project environment unchanged. If `swebench==4.1.0` is already installed in
+Yada's active environment, the shorter `uv run yada eval ...` form also works.
+Yada checks the Docker CLI and daemon before dataset loading or model inference.
+
+The Harness first pulls or builds the public instance image. Yada exports its
+prepared `/testbed` as the mutable artifact workspace. For native
+`--agent yada`, file tools edit that workspace on the host while `run_command`
+executes against it in an ephemeral container made from the same image. Final
+grading uses another Harness-owned container; only that container receives the
+evaluation patch and script.
+
+During image preparation, Harness stdout and stderr are streamed to the
+terminal and flushed live to `swebench-agent-image.stdout.log` and
+`swebench-agent-image.stderr.log` in the artifact directory. A heartbeat is
+printed after each 30-second interval without output. This happens before the
+Agent phase, so `yada-trace.jsonl` is not the place to diagnose an image pull or
+build. Official grading is streamed the same way to `swebench.stdout.log` and
+`swebench.stderr.log`. See
+[Evaluation lifecycle](evaluation.md#official-swe-bench---swebench-instance_id)
+for the exact cache, workspace, container, and grading sequence.
+
+The adapter intentionally fixes the current public evaluation policy instead of
+exposing Harness internals as Yada CLI flags:
+
+| Setting | Built-in policy |
+| --- | --- |
+| Dataset | `princeton-nlp/SWE-bench_Verified` |
+| Split | `test` |
+| Grading | Official Docker Harness |
+| Native Agent commands | Public instance image in an ephemeral container |
+| Image cache | Keep environment images |
+| Grading timeout | 1800 seconds |
+| Docker namespace | `swebench`; automatically disabled on Apple Silicon so images build locally |
+
+Apple Silicon support in SWE-bench remains experimental. Building images locally
+takes substantially more time and disk space than running a checked-in case.
+
+### External command agent (`--agent command`)
 
 The command adapter runs a non-interactive argv without a shell:
 
 ```bash
 uv run yada eval \
-  --benchmark local \
-  --manifest /path/to/task.local.json \
+  --case /path/to/task.local.json \
   --agent command \
   --agent-name another-agent \
   --agent-command \
@@ -168,36 +271,32 @@ uv run yada eval \
 
 The template supports `{task}`, `{task_file}`, `{workspace}`, `{output_patch}`,
 and `{run_dir}`. If the command does not write `{output_patch}`, Yada collects
-the complete Git diff, including untracked files.
+the complete Git diff, including untracked files. For `--swebench`, this
+external command is host-managed and is responsible for entering its own
+container; Yada's automatic Agent command container applies only to the native
+`--agent yada` adapter.
 
-### SWE-bench
+### Common evaluation options
 
-The SWE-bench adapter loads public instance metadata from `--instance-file`, or
-from Hugging Face when the optional `datasets` package is installed. It discards
-gold patches, test patches, and hidden test IDs at the public task boundary.
+| Option | Meaning | Default |
+| --- | --- | --- |
+| `--case PATH` | Portable local case directory or `case.json`. | Mutually exclusive with `--swebench` |
+| `--swebench ID` | One official SWE-bench Verified instance. | Mutually exclusive with `--case` |
+| `--agent yada\|command` | Agent adapter. | `yada` |
+| `--output PATH` | Result JSON path. | `eval-results/<task>__<time>.json` |
+| `--artifact-dir PATH` | Workspace, logs, patch, trace, and grader artifacts. | Sibling `<result>.artifacts` |
+| `--run-id ID` | Stable correlation ID. | Generated |
+| `--max-steps N` | Model-turn budget. | `30` |
+| `--wall-time SECONDS` | Comparable wall-time budget. | `1800` |
+| `--max-output-tokens N` | Per-completion token limit. | `16384` |
 
-Install the official SWE-bench package and Docker separately, then run:
+The native agent also accepts the model, thinking, timeout, command-policy, and
+trace-level options documented for `yada`. A deployment-level supervisor should
+enforce a hard wall-time limit for an in-process native agent. Use the same task,
+base commit, model budget, network policy, and grader when comparing agents.
 
-```bash
-uv run yada eval \
-  --benchmark swebench \
-  --instance pytest-dev__pytest-10051 \
-  --instance-file benchmarks/swebench_verified/pytest-10051/instance.json \
-  --workspace /path/to/clean/pytest-base-repo \
-  --agent yada \
-  --yes \
-  --swebench-python /path/to/swebench-env/bin/python \
-  --output results/yada-pytest-10051.json
-```
-
-`--workspace` is optional; without it, Yada fetches the exact base commit. It
-prepares the candidate workspace but does not replace official Docker grading.
-Use `--grade-mode none` to test preparation and prediction generation without
-Docker; the result is `skipped`, never `resolved`.
-
-Other SWE-bench options are `--dataset-name`, `--split`, `--cache-level`,
-`--clean`, `--namespace`, and `--grade-timeout`. Use the same task, base commit,
-model budget, network policy, and official grader when comparing agents.
+Evaluation exits with `0` for `resolved`, `1` for `unresolved`, and `2` for
+errors or non-verdict outcomes such as skipped grading.
 
 ## `yada-trace`
 

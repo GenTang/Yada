@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import platform
 import shlex
 import sys
 from pathlib import Path
@@ -22,16 +23,20 @@ def build_parser() -> argparse.ArgumentParser:
         prog="yada eval",
         description="Run one coding agent against one reproducible benchmark task.",
     )
-    parser.add_argument("--benchmark", choices=["local", "swebench"])
-    parser.add_argument(
+    task = parser.add_mutually_exclusive_group(required=True)
+    task.add_argument(
         "--case",
         type=Path,
+        help="Portable local case directory or case.json.",
+    )
+    task.add_argument(
+        "--swebench",
+        metavar="INSTANCE_ID",
         help=(
-            "Portable local benchmark case directory or case.json. Implies "
-            "--benchmark local."
+            "Official SWE-bench Verified instance to run and grade; "
+            "requires a running Docker daemon."
         ),
     )
-    parser.add_argument("--instance", help="Benchmark instance ID.")
     parser.add_argument("--agent", choices=["yada", "command"], default="yada")
     parser.add_argument(
         "--agent-command",
@@ -89,41 +94,6 @@ def build_parser() -> argparse.ArgumentParser:
         default="summary",
     )
 
-    local = parser.add_argument_group("local benchmark")
-    local.add_argument("--manifest", type=Path)
-    local.add_argument(
-        "--cache-dir",
-        type=Path,
-        default=Path(".yada/cache/evals"),
-        help="Git checkout cache used by portable local cases.",
-    )
-
-    swebench = parser.add_argument_group("SWE-bench")
-    swebench.add_argument(
-        "--dataset-name",
-        default="princeton-nlp/SWE-bench_Verified",
-    )
-    swebench.add_argument("--split", default="test")
-    swebench.add_argument("--instance-file", type=Path)
-    swebench.add_argument(
-        "--workspace",
-        type=Path,
-        help="Optional clean source repo to clone instead of fetching GitHub.",
-    )
-    swebench.add_argument("--swebench-python", default=sys.executable)
-    swebench.add_argument("--grade-mode", choices=["docker", "none"], default="docker")
-    swebench.add_argument(
-        "--cache-level",
-        choices=["none", "base", "env", "instance"],
-        default="env",
-    )
-    swebench.add_argument("--clean", action="store_true")
-    swebench.add_argument(
-        "--namespace",
-        default="swebench",
-        help="Docker image namespace; use 'none' to build locally.",
-    )
-    swebench.add_argument("--grade-timeout", type=int, default=1_800)
     return parser
 
 
@@ -133,46 +103,21 @@ def run_cli(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.case is not None:
-        if args.benchmark not in {None, "local"}:
-            parser.error("--case can only be used with --benchmark local")
-        if args.manifest is not None:
-            parser.error("--case and --manifest are mutually exclusive")
         case_path = args.case.expanduser().resolve()
         manifest_path = case_path / "case.json" if case_path.is_dir() else case_path
         if not manifest_path.is_file():
             parser.error(f"benchmark case does not exist: {manifest_path}")
-        benchmark = LocalBenchmark(
-            manifest_path,
-            cache_root=args.cache_dir,
-        )
-        instance_id = args.instance or _manifest_instance_id(benchmark)
+        benchmark = LocalBenchmark(manifest_path)
+        instance_id = _manifest_instance_id(benchmark)
         task_name = instance_id or case_path.stem
-    elif args.benchmark == "local":
-        if args.manifest is None:
-            parser.error("--manifest is required for --benchmark local")
-        benchmark = LocalBenchmark(args.manifest, cache_root=args.cache_dir)
-        instance_id = args.instance or _manifest_instance_id(benchmark)
-        task_name = instance_id or args.manifest.stem
-    elif args.benchmark == "swebench":
-        if not args.instance:
-            parser.error("--instance is required for --benchmark swebench")
-        namespace = None if args.namespace.lower() == "none" else args.namespace
-        benchmark = SWEbenchBenchmark(
-            dataset_name=args.dataset_name,
-            split=args.split,
-            instance_file=args.instance_file,
-            source_workspace=args.workspace,
-            harness_python=args.swebench_python,
-            grade_mode=args.grade_mode,
-            cache_level=args.cache_level,
-            clean=args.clean,
-            namespace=namespace,
-            grade_timeout_seconds=args.grade_timeout,
-        )
-        instance_id = args.instance
-        task_name = instance_id
     else:
-        parser.error("provide --case or --benchmark")
+        benchmark = SWEbenchBenchmark(
+            harness_python=os.environ.get("SWEBENCH_PYTHON", sys.executable),
+            namespace=_default_swebench_namespace(),
+        )
+        instance_id = args.swebench
+        assert instance_id is not None
+        task_name = instance_id
 
     output_path = (
         args.output.expanduser().resolve()
@@ -254,3 +199,9 @@ def _default_output_path(task_name: str) -> Path:
 def _manifest_instance_id(benchmark: LocalBenchmark) -> str:
     value = benchmark.manifest.get("instance_id")
     return value if isinstance(value, str) else ""
+
+
+def _default_swebench_namespace() -> str | None:
+    if sys.platform == "darwin" and platform.machine().lower() in {"arm64", "aarch64"}:
+        return None
+    return "swebench"
