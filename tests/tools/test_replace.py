@@ -250,11 +250,7 @@ def test_invalid_and_oversized_edits_are_bounded(
     )
     oversized = tool_runner.execute(
         "replace_text",
-        {
-            "edits": [
-                _edit(tool_runner, "app.py", "return 41", "x" * 100_001)
-            ]
-        },
+        {"edits": [_edit(tool_runner, "app.py", "return 41", "x" * 100_001)]},
     )
 
     assert empty.data["error_code"] == "invalid_edit"
@@ -349,9 +345,7 @@ def test_generated_patch_failure_is_reported_as_apply_failed(
     )
 
     assert result.data["error_code"] == "apply_failed"
-    assert result.data["details"]["cause_error_code"] == (
-        "patch_context_mismatch"
-    )
+    assert result.data["details"]["cause_error_code"] == ("patch_context_mismatch")
     assert "return 41" in (git_workspace / "app.py").read_text()
     assert tool_runner.context.state.revision == 0
 
@@ -365,9 +359,7 @@ def test_replace_text_execution_is_auditable(
         trace=TraceWriter(trace_path, level="debug"),
         emit=lambda _: None,
     )
-    arguments = {
-        "edits": [_edit(tool_runner, "app.py", "return 41", "return 42")]
-    }
+    arguments = {"edits": [_edit(tool_runner, "app.py", "return 41", "return 42")]}
     call = {
         "id": "replace-1",
         "type": "function",
