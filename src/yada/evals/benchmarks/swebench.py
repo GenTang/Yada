@@ -12,6 +12,34 @@ from typing import Any
 
 from yada.evals.base import AgentRunResult, EvalTask, GradeResult, PreparedTask
 
+_PUBLIC_INSTANCE_FIELDS = (
+    "instance_id",
+    "repo",
+    "base_commit",
+    "problem_statement",
+    "version",
+    "difficulty",
+    "dataset_revision",
+    "created_at",
+    "environment_setup_commit",
+)
+_SWEBENCH_PACKAGE = "swebench==4.1.0"
+_INSTANCE_PREFIX = "__YADA_SWEBENCH_INSTANCE__="
+_INSTANCE_LOADER = f"""
+import json
+import sys
+from swebench.harness.utils import load_swebench_dataset
+
+dataset_name, split, instance_id = sys.argv[1:4]
+rows = load_swebench_dataset(dataset_name, split, [instance_id])
+row = next((item for item in rows if item.get("instance_id") == instance_id), None)
+if row is None:
+    raise SystemExit(f"instance {{instance_id!r}} not found")
+public_fields = {_PUBLIC_INSTANCE_FIELDS!r}
+public_row = {{key: row.get(key) for key in public_fields}}
+print({_INSTANCE_PREFIX!r} + json.dumps(public_row, ensure_ascii=False, default=str))
+"""
+
 
 class SWEbenchBenchmark:
     """Prepare a base repository and delegate grading to SWE-bench Harness."""
@@ -23,7 +51,6 @@ class SWEbenchBenchmark:
         *,
         dataset_name: str = "princeton-nlp/SWE-bench_Verified",
         split: str = "test",
-        instance_file: Path | None = None,
         source_workspace: Path | None = None,
         harness_python: str = sys.executable,
         grade_mode: str = "docker",
@@ -38,9 +65,6 @@ class SWEbenchBenchmark:
             raise ValueError("invalid SWE-bench cache level")
         self.dataset_name = dataset_name
         self.split = split
-        self.instance_file = (
-            instance_file.expanduser().resolve() if instance_file else None
-        )
         self.source_workspace = (
             source_workspace.expanduser().resolve() if source_workspace else None
         )
@@ -52,14 +76,11 @@ class SWEbenchBenchmark:
         self.grade_timeout_seconds = grade_timeout_seconds
 
     def load_task(self, instance_id: str) -> EvalTask:
-        row = (
-            _load_instance_file(self.instance_file, instance_id)
-            if self.instance_file
-            else _load_huggingface_instance(
-                self.dataset_name,
-                self.split,
-                instance_id,
-            )
+        row = _load_harness_instance(
+            self.harness_python,
+            self.dataset_name,
+            self.split,
+            instance_id,
         )
         required = ("instance_id", "repo", "base_commit", "problem_statement")
         missing = [key for key in required if not row.get(key)]
@@ -67,7 +88,8 @@ class SWEbenchBenchmark:
             raise ValueError(f"SWE-bench instance is missing fields: {missing}")
         if row["instance_id"] != instance_id:
             raise ValueError(
-                f"instance file contains {row['instance_id']!r}, not {instance_id!r}"
+                f"SWE-bench Harness returned {row['instance_id']!r}, "
+                f"not {instance_id!r}"
             )
 
         # Gold patches, hidden test patches, and test IDs deliberately do not cross
@@ -244,48 +266,53 @@ class SWEbenchBenchmark:
         return GradeResult("error", None, duration_ms, details=details)
 
 
-def _load_instance_file(path: Path, instance_id: str) -> dict[str, Any]:
-    try:
-        text = path.read_text(encoding="utf-8")
-    except OSError as exc:
-        raise ValueError(f"cannot read SWE-bench instance file: {exc}") from exc
-    try:
-        data = json.loads(text)
-        if isinstance(data, dict):
-            rows: list[Any] = data.get("rows", [data])
-        elif isinstance(data, list):
-            rows = data
-        else:
-            rows = []
-    except json.JSONDecodeError:
-        rows = [json.loads(line) for line in text.splitlines() if line.strip()]
-
-    for item in rows:
-        row = item.get("row", item) if isinstance(item, dict) else {}
-        if row.get("instance_id") == instance_id:
-            return dict(row)
-    raise ValueError(f"instance {instance_id!r} not found in {path}")
-
-
-def _load_huggingface_instance(
+def _load_harness_instance(
+    harness_python: str,
     dataset_name: str,
     split: str,
     instance_id: str,
 ) -> dict[str, Any]:
     try:
-        from datasets import load_dataset
-    except ImportError as exc:
+        process = subprocess.run(
+            [harness_python, "-c", _INSTANCE_LOADER, dataset_name, split, instance_id],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=300,
+            check=False,
+        )
+    except FileNotFoundError as exc:
         raise RuntimeError(
-            "loading SWE-bench from Hugging Face requires the optional "
-            "'datasets' package; install it or pass --instance-file"
+            f"SWE-bench Harness Python does not exist: {harness_python}. "
+            "Set SWEBENCH_PYTHON to its Python executable."
         ) from exc
-    dataset = load_dataset(dataset_name, split=split)
-    for row in dataset:
-        if row.get("instance_id") == instance_id:
-            return dict(row)
-    raise ValueError(
-        f"instance {instance_id!r} not found in {dataset_name} split {split}"
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError("timed out while loading the SWE-bench instance") from exc
+    if process.returncode:
+        detail = process.stderr.strip() or process.stdout.strip()
+        raise RuntimeError(
+            "cannot load the SWE-bench instance with the official Harness. "
+            f"Run Yada with `uv run --with '{_SWEBENCH_PACKAGE}' yada eval "
+            "--swebench INSTANCE_ID ...`. "
+            f"{detail}"
+        )
+    record = next(
+        (
+            line.removeprefix(_INSTANCE_PREFIX)
+            for line in process.stdout.splitlines()
+            if line.startswith(_INSTANCE_PREFIX)
+        ),
+        None,
     )
+    if record is None:
+        raise RuntimeError("official SWE-bench Harness returned no instance metadata")
+    try:
+        row = json.loads(record)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("official SWE-bench Harness returned invalid metadata") from exc
+    if not isinstance(row, dict):
+        raise RuntimeError("official SWE-bench Harness returned invalid metadata")
+    return {key: row.get(key) for key in _PUBLIC_INSTANCE_FIELDS}
 
 
 def _require_head(workspace: Path, expected: str) -> None:

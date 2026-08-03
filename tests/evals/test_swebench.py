@@ -6,6 +6,7 @@ from pathlib import Path
 
 from yada.evals import AgentRunResult
 from yada.evals.benchmarks import SWEbenchBenchmark
+from yada.evals.benchmarks.swebench import _INSTANCE_PREFIX, _load_harness_instance
 
 
 def _source_repo(tmp_path: Path) -> tuple[Path, str]:
@@ -29,31 +30,65 @@ def _source_repo(tmp_path: Path) -> tuple[Path, str]:
     return source, head
 
 
-def _instance_file(tmp_path: Path, head: str) -> Path:
-    path = tmp_path / "instance.json"
-    path.write_text(
-        json.dumps(
-            {
-                "instance_id": "owner__repo-1",
-                "repo": "owner/repo",
-                "base_commit": head,
-                "problem_statement": "Fix VALUE.",
-                "patch": "SECRET GOLD PATCH",
-                "test_patch": "SECRET TEST PATCH",
-                "FAIL_TO_PASS": "hidden test",
-            }
-        ),
-        encoding="utf-8",
+def _instance_row(head: str) -> dict[str, str]:
+    return {
+        "instance_id": "owner__repo-1",
+        "repo": "owner/repo",
+        "base_commit": head,
+        "problem_statement": "Fix VALUE.",
+    }
+
+
+def test_swebench_metadata_comes_from_harness_and_stays_public(monkeypatch) -> None:
+    def fake_run(argv, **kwargs):
+        assert argv[0] == "python-for-swebench"
+        assert argv[-3:] == [
+            "princeton-nlp/SWE-bench_Verified",
+            "test",
+            "owner__repo-1",
+        ]
+        payload = {
+            "instance_id": "owner__repo-1",
+            "repo": "owner/repo",
+            "base_commit": "abc123",
+            "problem_statement": "Fix VALUE.",
+            "patch": "SECRET GOLD PATCH",
+        }
+        return subprocess.CompletedProcess(
+            argv,
+            0,
+            _INSTANCE_PREFIX + json.dumps(payload) + "\n",
+            "",
+        )
+
+    monkeypatch.setattr(
+        "yada.evals.benchmarks.swebench.subprocess.run",
+        fake_run,
     )
-    return path
+
+    row = _load_harness_instance(
+        "python-for-swebench",
+        "princeton-nlp/SWE-bench_Verified",
+        "test",
+        "owner__repo-1",
+    )
+
+    assert row["problem_statement"] == "Fix VALUE."
+    assert "patch" not in row
 
 
-def test_swebench_task_hides_gold_data_and_writes_prediction(tmp_path: Path) -> None:
+def test_swebench_loads_task_with_harness_and_writes_prediction(
+    tmp_path: Path, monkeypatch
+) -> None:
     source, head = _source_repo(tmp_path)
+    monkeypatch.setattr(
+        "yada.evals.benchmarks.swebench._load_harness_instance",
+        lambda *_: _instance_row(head),
+    )
     benchmark = SWEbenchBenchmark(
-        instance_file=_instance_file(tmp_path, head),
         source_workspace=source,
         grade_mode="none",
+        harness_python="python-for-swebench",
     )
 
     task = benchmark.load_task("owner__repo-1")
@@ -81,8 +116,11 @@ def test_swebench_task_hides_gold_data_and_writes_prediction(tmp_path: Path) -> 
 
 def test_swebench_parses_official_run_report(tmp_path: Path, monkeypatch) -> None:
     source, head = _source_repo(tmp_path)
+    monkeypatch.setattr(
+        "yada.evals.benchmarks.swebench._load_harness_instance",
+        lambda *_: _instance_row(head),
+    )
     benchmark = SWEbenchBenchmark(
-        instance_file=_instance_file(tmp_path, head),
         source_workspace=source,
         grade_mode="docker",
         harness_python="python-for-swebench",

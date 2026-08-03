@@ -190,14 +190,18 @@ def test_local_grader_keeps_virtualenv_python_symlink(tmp_path: Path) -> None:
     assert resolved == str(python_link)
 
 
-def test_checked_in_case_shares_prompt_with_swebench_adapter() -> None:
+def test_checked_in_case_shares_prompt_with_swebench_adapter(monkeypatch) -> None:
     case_dir = (
         Path(__file__).resolve().parents[2]
         / "benchmarks/swebench_verified/pytest-10051"
     )
     local_task = LocalBenchmark(case_dir / "case.json").load_task("")
+    instance = json.loads((case_dir / "instance.json").read_text(encoding="utf-8"))
+    monkeypatch.setattr(
+        "yada.evals.benchmarks.swebench._load_harness_instance",
+        lambda *_: instance,
+    )
     swebench_task = SWEbenchBenchmark(
-        instance_file=case_dir / "instance.json",
         grade_mode="none",
     ).load_task("pytest-dev__pytest-10051")
 
