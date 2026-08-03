@@ -12,7 +12,7 @@ from yada.evals.agents import CommandAgentAdapter, YadaAgentAdapter
 from yada.evals.base import RunBudget
 from yada.evals.benchmarks import LocalBenchmark, SWEbenchBenchmark
 from yada.evals.runner import EvalRunner
-from yada.utils.naming import readable_run_name
+from yada.utils.naming import next_available_run_name, readable_run_name
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -45,7 +45,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--output",
         type=Path,
         help=(
-            "Result JSON path (default: eval-results/<task>__<readable-UTC-time>.json)."
+            "Result JSON path (default: eval-results/<task>__<system-local-time>.json)."
         ),
     )
     parser.add_argument(
@@ -242,7 +242,13 @@ def run_cli(argv: list[str] | None = None) -> int:
 
 
 def _default_output_path(task_name: str) -> Path:
-    return Path("eval-results") / f"{readable_run_name(task_name)}.json"
+    directory = Path("eval-results")
+    run_name = next_available_run_name(
+        directory,
+        readable_run_name(task_name),
+        suffixes=(".json", ".artifacts"),
+    )
+    return directory / f"{run_name}.json"
 
 
 def _manifest_instance_id(benchmark: LocalBenchmark) -> str:

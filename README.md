@@ -159,21 +159,30 @@ Inspect a completed or interrupted run without manually scanning JSONL:
 
 ```bash
 uv run yada-trace \
-  .yada/runs/fix-parser-edge-case__2026-08-02_12-26-26.123456Z.jsonl
+  .yada/runs/fix-parser-edge-case__2026-08-02_20-26.jsonl
 uv run yada-trace \
-  eval-results/pytest-dev__pytest-10051__2026-08-02_12-26-26.123456Z.artifacts/yada-trace.jsonl \
+  eval-results/pytest-dev__pytest-10051__2026-08-02_20-26.artifacts/yada-trace.jsonl \
   --step 8
-uv run yada-trace eval-results/<task>__<UTC-time>.artifacts/yada-trace.jsonl \
+uv run yada-trace eval-results/<task>__<system-local-time>.artifacts/yada-trace.jsonl \
   --verbose
+uv run yada-trace TRACE.jsonl --events
 ```
 
-The report correlates model requests, tool-call IDs, errors, reminders, and the
-final verification state into a compact timeline. `--step` and `--verbose`
-expand sanitized model messages, tool arguments, patches, stdout, and stderr.
-The source JSONL remains the durable, streaming-friendly record. Debug traces can
-contain source code and test output even after secret redaction, so handle them as
-sensitive artifacts. See [docs/tracing.md](docs/tracing.md) for the event
-reference, field-presence semantics, lifecycle, and `jq` recipes.
+The default report groups each model request, response, planning decision, and
+ordered tool executions into one agent step. Every summary includes physical
+JSONL line references so the source evidence is immediately reachable with tools
+such as `sed`. `--step` and `--verbose` expand sanitized model messages, tool
+arguments, patches, stdout, and stderr inside grouped steps; `--events` retains a
+line-prefixed flat timeline. The source JSONL remains the durable,
+streaming-friendly record. Debug traces can contain source code and test output
+even after secret redaction, so handle them as sensitive artifacts. See
+[docs/tracing.md](docs/tracing.md) for the event reference, field-presence
+semantics, lifecycle, and `jq` recipes.
+
+Default trace and evaluation paths use the system-local time at minute
+precision. If a name already exists, Yada appends `(1)`, `(2)`, and so on before
+the file or artifacts suffix, keeping the result JSON and artifacts directory on
+the same number.
 
 ## Safety model
 

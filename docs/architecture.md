@@ -96,12 +96,13 @@ results remain correlated by step, request ID, and tool-call ID. `run_start`
 records Yada version/commit, workspace base commit, case ID when available, and
 the model configuration.
 
-`yada-trace PATH` renders the compact summary. `--step N` expands one request →
-response → tools slice, while `--verbose` expands the full timeline. Reasoning
-is length/hash-redacted in summary traces and automatically retained in debug
-traces. Common secret keys and bearer/API-key-like text are redacted in both
-modes. A debug trace can still contain reasoning, source code, and test output
-and must be handled as a sensitive artifact.
+`yada-trace PATH` renders one source-located section per agent step. `--step N`
+expands one complete request → response → tools step, while `--verbose` expands
+every grouped step and `--events` provides the line-prefixed flat timeline.
+Reasoning is length/hash-redacted in summary traces and automatically retained in
+debug traces. Common secret keys and bearer/API-key-like text are redacted in
+both modes. A debug trace can still contain reasoning, source code, and test
+output and must be handled as a sensitive artifact.
 The complete event and field reference lives in [tracing.md](tracing.md).
 
 The MVP stores a full sanitized request snapshot per turn. This deliberately
