@@ -201,6 +201,10 @@ def test_checked_in_case_shares_prompt_with_swebench_adapter(monkeypatch) -> Non
         "yada.evals.benchmarks.swebench._load_harness_instance",
         lambda *_: instance,
     )
+    monkeypatch.setattr(
+        "yada.evals.benchmarks.swebench._require_docker",
+        lambda: None,
+    )
     swebench_task = SWEbenchBenchmark(
         grade_mode="none",
     ).load_task("pytest-dev__pytest-10051")

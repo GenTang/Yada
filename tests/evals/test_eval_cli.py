@@ -19,9 +19,7 @@ def test_eval_cli_has_two_task_selectors() -> None:
 
 def test_eval_cli_rejects_multiple_task_selectors() -> None:
     with pytest.raises(SystemExit):
-        build_parser().parse_args(
-            ["--case", "case-dir", "--swebench", "owner__repo-1"]
-        )
+        build_parser().parse_args(["--case", "case-dir", "--swebench", "owner__repo-1"])
 
 
 def test_swebench_namespace_is_automatic_on_apple_silicon(monkeypatch) -> None:

@@ -32,7 +32,10 @@ def build_parser() -> argparse.ArgumentParser:
     task.add_argument(
         "--swebench",
         metavar="INSTANCE_ID",
-        help="Official SWE-bench Verified instance to run and grade in Docker.",
+        help=(
+            "Official SWE-bench Verified instance to run and grade; "
+            "requires a running Docker daemon."
+        ),
     )
     parser.add_argument("--agent", choices=["yada", "command"], default="yada")
     parser.add_argument(

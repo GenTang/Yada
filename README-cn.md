@@ -20,6 +20,11 @@ Yada 目前处于 Alpha 阶段。仓库已经测试本地 Agent 闭环，但尚�
 - [uv](https://docs.astral.sh/uv/)（推荐）
 - DeepSeek API Key
 
+直接运行 `yada` 和执行 `yada eval --case` 不需要 Docker；官方
+`yada eval --swebench` 评测要求安装并启动仍受维护的 Docker Desktop 或
+Docker Engine。安装、验证、版本策略与资源要求见
+[Docker requirements](docs/configuration.md#docker-requirements)。
+
 ## 快速开始
 
 ```bash
@@ -53,6 +58,8 @@ Trace 保存在目标仓库的 `.yada/runs/` 目录下。
 - [配置](docs/configuration.md)：其他安装方式、API Key、模型参数、命令策略和
   Trace Level。
 - [CLI 参考](docs/cli-reference.md)：`yada`、`yada eval` 和 `yada-trace`。
+- [评测生命周期](docs/evaluation.md)：`--case` 与 `--swebench` 会加载、修改、
+  缓存、评分和写入哪些内容。
 - [贡献指南](CONTRIBUTING.md)：开发环境、验证命令和基于 Rebase 的 PR 流程。
 - [架构](docs/dev/architecture.md)：Agent 循环、工具、Patch 事务、评测边界与
   安全不变量。
