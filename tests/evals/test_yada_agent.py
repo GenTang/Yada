@@ -86,8 +86,7 @@ def test_yada_eval_trace_includes_case_and_workspace_provenance(
     assistant = next(event for event in events if event["event"] == "assistant")
     assert assistant["data"]["message"]["reasoning_content"] == "debug reasoning"
     assert any(
-        schema["function"]["name"] == "replace_text"
-        for schema in client.seen_tools[0]
+        schema["function"]["name"] == "replace_text" for schema in client.seen_tools[0]
     )
     assert result.details["editing_strategy"] == "replace-first"
     metrics = result.details["editing_metrics"]

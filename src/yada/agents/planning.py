@@ -120,9 +120,7 @@ class Planner:
             _tool_name(call) in EDITING_TOOLS for call in tool_calls
         )
         if editing_call_count > 1:
-            rejection_error = (
-                "only one editing operation is allowed per assistant turn"
-            )
+            rejection_error = "only one editing operation is allowed per assistant turn"
             rejection_error_code = "multiple_edit_operations"
         elif len(tool_calls) > 1 and any(
             _tool_name(call) == "finish_task" for call in tool_calls

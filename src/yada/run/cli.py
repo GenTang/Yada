@@ -52,10 +52,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--editing-strategy",
         choices=EDITING_STRATEGY_CHOICES,
         default=DEFAULT_EDITING_STRATEGY.value,
-        help=(
-            "Run-level editing policy "
-            f"(default: {DEFAULT_EDITING_STRATEGY.value})."
-        ),
+        help=(f"Run-level editing policy (default: {DEFAULT_EDITING_STRATEGY.value})."),
     )
     parser.add_argument("--max-steps", type=int, default=30)
     parser.add_argument("--max-output-tokens", type=int, default=16_384)
