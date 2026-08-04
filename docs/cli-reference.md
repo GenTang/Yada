@@ -301,7 +301,7 @@ errors or non-verdict outcomes such as skipped grading.
 ## `yada-trace`
 
 ```text
-yada-trace TRACE.jsonl [--step N | --verbose | --events | --html PATH]
+yada-trace TRACE.jsonl [--step N | --verbose | --events | --html [PATH]]
 ```
 
 | Option | Meaning |
@@ -309,7 +309,7 @@ yada-trace TRACE.jsonl [--step N | --verbose | --events | --html PATH]
 | `--step N` | Expand one complete request → response → tools step. |
 | `--verbose` | Expand payloads inside every grouped step. |
 | `--events` | Show the flat event timeline with physical JSONL line numbers. |
-| `--html PATH` | Write one self-contained offline HTML trace viewer. |
+| `--html [PATH]` | Write one self-contained offline HTML viewer. Without `PATH`, write it beside the trace and open it. |
 
 The default view groups records by agent step and shows physical JSONL line
 references for the model request/response and each tool call/result pair:
@@ -318,10 +318,13 @@ references for the model request/response and each tool call/result pair:
 uv run yada-trace TRACE.jsonl
 uv run yada-trace TRACE.jsonl --step 8
 uv run yada-trace TRACE.jsonl --events
+uv run yada-trace TRACE.jsonl --html
 uv run yada-trace TRACE.jsonl --html trace.html
 ```
 
-The HTML viewer groups the same validated records by step and adds local search,
+Without an output path, `--html` writes `TRACE.html` beside `TRACE.jsonl` and
+opens it in the default browser. Pass a path to export the viewer without opening
+it. The HTML viewer groups the same validated records by step and adds local search,
 failure/file-change filters, collapsed large payloads, message-field presence,
 and the final diff. It contains inline CSS and JavaScript only: opening the file
 does not start a server or request external resources. The generated file can

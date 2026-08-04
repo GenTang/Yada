@@ -46,6 +46,7 @@ def render_trace_html(path: Path) -> str:
         + '<label for="trace-search">Search this trace</label>'
         + '<input id="trace-search" type="search" '
         + 'placeholder="Prompt, tool, file, error…">'
+        + '<p id="search-status" class="search-status" aria-live="polite"></p>'
         + _render_filters()
         + f'<nav id="step-list" aria-label="Agent steps">{navigation}</nav>'
         + '<p id="no-results" class="empty" hidden>No matching steps.</p>'
@@ -494,8 +495,9 @@ h2 { margin:0; font-size:20px; } h3 { margin-bottom:8px; font-size:14px; }
   border-radius:10px; padding:16px; }
 .sidebar { position:sticky; top:16px; max-height:calc(100vh - 32px); overflow:auto; }
 .sidebar > label, legend { font-weight:600; }
-input[type="search"] { width:100%; margin:7px 0 14px; padding:9px 10px;
+input[type="search"] { width:100%; margin:7px 0 5px; padding:9px 10px;
   color:var(--text); background:var(--bg); border:1px solid var(--border); border-radius:6px; }
+.search-status { margin:0 0 14px; color:var(--muted); font-size:12px; }
 fieldset { margin:0 0 14px; padding:0; border:0; }
 .filter { display:block; margin:7px 0; color:var(--muted); }
 #step-list { display:grid; gap:6px; }
@@ -534,6 +536,10 @@ pre { max-height:520px; overflow:auto; margin:9px 0 0; padding:12px; background:
   const panels = new Map(
     [...document.querySelectorAll(".step-panel")].map(panel => [panel.id.slice(5), panel])
   );
+  const searchableText = new Map(
+    [...panels].map(([step, panel]) => [step, panel.textContent.toLocaleLowerCase()])
+  );
+  const searchStatus = document.getElementById("search-status");
   const noResults = document.getElementById("no-results");
 
   function select(button) {
@@ -551,14 +557,17 @@ pre { max-height:520px; overflow:auto; margin:9px 0 0; padding:12px; background:
     const active = filters.filter(item => item.checked).map(item => item.value);
     const visible = [];
     buttons.forEach(button => {
-      const panel = panels.get(button.dataset.step);
       const flags = new Set((button.dataset.flags || "").split(" ").filter(Boolean));
       const matchesFilter = active.length === 0 || active.some(flag => flags.has(flag));
-      const matchesSearch = !query || (panel && panel.textContent.toLocaleLowerCase().includes(query));
+      const matchesSearch = !query || (searchableText.get(button.dataset.step) || "").includes(query);
       button.hidden = !(matchesFilter && matchesSearch);
       if (!button.hidden) visible.push(button);
     });
-    noResults.hidden = visible.length !== 0;
+    const totalLabel = buttons.length === 1 ? "step" : "steps";
+    searchStatus.textContent = visible.length === buttons.length
+      ? `${buttons.length} ${totalLabel}`
+      : `${visible.length} of ${buttons.length} ${totalLabel}`;
+    noResults.hidden = (!query && active.length === 0) || visible.length !== 0;
     const selected = buttons.find(item => item.getAttribute("aria-selected") === "true");
     if (!selected || selected.hidden) {
       if (visible[0]) select(visible[0]);
@@ -569,6 +578,7 @@ pre { max-height:520px; overflow:auto; margin:9px 0 0; padding:12px; background:
   buttons.forEach(button => button.addEventListener("click", () => select(button)));
   search.addEventListener("input", applyFilters);
   filters.forEach(filter => filter.addEventListener("change", applyFilters));
+  applyFilters();
 })();
 </script>
 </body>

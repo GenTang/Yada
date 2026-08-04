@@ -7,9 +7,16 @@ from yada.traces import TRACE_SCHEMA_VERSION, TraceWriter, render_trace_html
 from yada.traces.cli import run_cli
 
 
-def test_completed_trace_renders_offline_semantic_view(tmp_path: Path, capsys) -> None:
+def test_completed_trace_renders_offline_semantic_view(
+    tmp_path: Path, capsys, monkeypatch
+) -> None:
     trace_path = tmp_path / "completed.jsonl"
     output_path = tmp_path / "viewer.html"
+    opened = []
+    monkeypatch.setattr(
+        "yada.traces.cli.webbrowser.open",
+        lambda url, new: opened.append((url, new)) or True,
+    )
     trace = TraceWriter(trace_path, level="debug", run_id="html-test")
     trace.write(
         "run_start",
@@ -110,6 +117,31 @@ def test_completed_trace_renders_offline_semantic_view(tmp_path: Path, capsys) -
     assert "XMLHttpRequest" not in document
     assert "default-src &#x27;none&#x27;" not in document
     assert "default-src 'none'" in document
+    assert opened == []
+    assert 'id="search-status"' in document
+    assert "const searchableText = new Map(" in document
+    assert "panel.textContent.toLocaleLowerCase()" in document
+    assert "applyFilters();" in document
+
+
+def test_html_without_path_writes_beside_trace_and_opens(
+    tmp_path: Path, capsys, monkeypatch
+) -> None:
+    trace_path = tmp_path / "nested" / "run.jsonl"
+    trace = TraceWriter(trace_path, level="summary", run_id="auto-html")
+    trace.write("run_start", {"model": "fake", "task": "open trace"})
+    opened = []
+    monkeypatch.setattr(
+        "yada.traces.cli.webbrowser.open",
+        lambda url, new: opened.append((url, new)) or True,
+    )
+
+    assert run_cli([str(trace_path), "--html"]) == 0
+
+    output_path = trace_path.with_suffix(".html").resolve()
+    assert output_path.is_file()
+    assert opened == [(output_path.as_uri(), 2)]
+    assert "Wrote and opened offline trace viewer" in capsys.readouterr().out
 
 
 def test_interrupted_trace_marks_missing_pairs_and_run_end(tmp_path: Path) -> None:

@@ -113,10 +113,12 @@ For longer runs, generate a portable semantic view and open it directly in a
 browser:
 
 ```bash
-uv run yada-trace TRACE.jsonl --html trace.html
+uv run yada-trace TRACE.jsonl --html
 ```
 
-The single HTML file works offline and groups requests, reasoning, responses,
+This writes `TRACE.html` beside the JSONL and opens it in the default browser.
+Pass an explicit path after `--html` to export without opening it. The single
+HTML file works offline and groups requests, reasoning, responses,
 plans, tool calls/results, failures, and the final diff by step. Search and
 filters run locally in the browser. Large prompts, patches, and command output
 are collapsed by default. The viewer preserves redaction from the JSONL and

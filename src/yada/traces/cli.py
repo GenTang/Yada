@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import argparse
 import sys
+import webbrowser
 from pathlib import Path
 
 from yada.traces.html import write_trace_html
 from yada.traces.report import TraceFormatError, render_trace_report
+
+_AUTO_HTML = object()
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -35,9 +38,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--html",
+        nargs="?",
+        const=_AUTO_HTML,
         type=Path,
         metavar="PATH",
-        help="Write a self-contained offline HTML viewer.",
+        help=(
+            "Write a self-contained offline HTML viewer; omit PATH to write "
+            "beside TRACE and open it."
+        ),
     )
     return parser
 
@@ -53,9 +61,21 @@ def run_cli(argv: list[str] | None = None) -> int:
                 raise TraceFormatError(
                     "--html cannot be combined with --step, --verbose, or --events"
                 )
-            output_path = args.html.expanduser().resolve()
+            auto_open = args.html is _AUTO_HTML
+            output_path = (
+                trace_path.with_suffix(".html")
+                if auto_open
+                else args.html.expanduser().resolve()
+            )
             write_trace_html(trace_path, output_path)
-            print(f"Wrote offline trace viewer: {output_path}")
+            if auto_open and _open_html(output_path):
+                print(f"Wrote and opened offline trace viewer: {output_path}")
+            else:
+                print(f"Wrote offline trace viewer: {output_path}")
+                if auto_open:
+                    print(
+                        "Could not open it automatically; open the file in a browser."
+                    )
             return 0
         report = render_trace_report(
             trace_path,
@@ -78,6 +98,13 @@ def _positive_step(value: str) -> int:
     if step < 1:
         raise argparse.ArgumentTypeError("step must be a positive integer")
     return step
+
+
+def _open_html(path: Path) -> bool:
+    try:
+        return webbrowser.open(path.as_uri(), new=2)
+    except (OSError, webbrowser.Error):
+        return False
 
 
 def main() -> None:
