@@ -51,8 +51,21 @@ Yada prints each DeepSeek turn and tool execution, then reports whether the task
 passed its verification gate. Traces are written under the target repository's
 `.yada/runs/` directory by default.
 
-Repository tests can execute arbitrary code. Yada provides guardrails, not a
-complete OS sandbox; use a disposable VM or container for unfamiliar projects.
+Unfamiliar projects may contain and execute arbitrary code. Yada provides
+guardrails, but it is not a complete operating-system sandbox, so running such
+projects can still put your system at risk. Use a disposable VM or container
+when working with unfamiliar projects.
+
+## Inspect every step
+
+Turn any JSONL trace into a self-contained offline viewer—no server, CDN, or
+additional runtime dependency required:
+
+```bash
+uv run yada-trace TRACE.jsonl --html
+```
+
+[![Yada offline trace viewer](docs/assets/yada-trace-viewer.jpg)](docs/assets/yada-trace-viewer.jpg)
 
 ## Learn more
 

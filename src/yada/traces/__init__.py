@@ -1,5 +1,6 @@
 """Trace persistence and human-readable run diagnostics."""
 
+from yada.traces.html import render_trace_html, write_trace_html
 from yada.traces.jsonl import TRACE_LEVELS, TRACE_SCHEMA_VERSION, TraceWriter
 from yada.traces.report import (
     LocatedTraceEvent,
@@ -27,5 +28,7 @@ __all__ = [
     "read_located_trace",
     "read_trace",
     "reconstruct_model_request",
+    "render_trace_html",
     "render_trace_report",
+    "write_trace_html",
 ]

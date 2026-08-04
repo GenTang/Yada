@@ -50,8 +50,20 @@ uv run yada --task-file issue.md --workspace /workspace --yes
 Yada 会打印每轮 DeepSeek 调用和工具执行，最后报告任务是否通过验证门槛。默认
 Trace 保存在目标仓库的 `.yada/runs/` 目录下。
 
-仓库测试可以执行任意代码。Yada 提供 Guardrail，但不是完整的操作系统沙箱；
-处理陌生项目时请使用一次性 VM 或容器。
+陌生项目可能包含并执行任意代码。Yada 虽然提供了 Guardrail，但并不是完整的
+操作系统沙箱，运行这类项目仍可能危及系统安全。处理陌生项目时，请使用一次性
+VM 或容器。
+
+## 检查每一个步骤
+
+将任意 JSONL Trace 转换成完全离线、自包含的可视化页面，无需服务器、CDN 或
+额外运行时依赖：
+
+```bash
+uv run yada-trace TRACE.jsonl --html
+```
+
+[![Yada 离线 Trace Viewer](docs/assets/yada-trace-viewer.jpg)](docs/assets/yada-trace-viewer.jpg)
 
 ## 更多文档
 
