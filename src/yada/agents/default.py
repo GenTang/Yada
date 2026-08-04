@@ -167,6 +167,10 @@ class Agent:
                 "system_fingerprint": completion.system_fingerprint,
                 "finish_reason": completion.finish_reason,
             }
+            if completion.message_field_presence is not None:
+                assistant_record["message_field_presence"] = (
+                    completion.message_field_presence
+                )
             self.trace.write(
                 "assistant",
                 assistant_record,

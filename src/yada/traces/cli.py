@@ -6,6 +6,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from yada.traces.html import write_trace_html
 from yada.traces.report import TraceFormatError, render_trace_report
 
 
@@ -32,6 +33,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Show the legacy flat event timeline with physical line numbers.",
     )
+    parser.add_argument(
+        "--html",
+        type=Path,
+        metavar="PATH",
+        help="Write a self-contained offline HTML viewer.",
+    )
     return parser
 
 
@@ -40,8 +47,18 @@ def run_cli(argv: list[str] | None = None) -> int:
 
     args = build_parser().parse_args(argv)
     try:
+        trace_path = args.trace.expanduser().resolve()
+        if args.html is not None:
+            if args.step is not None or args.verbose or args.events:
+                raise TraceFormatError(
+                    "--html cannot be combined with --step, --verbose, or --events"
+                )
+            output_path = args.html.expanduser().resolve()
+            write_trace_html(trace_path, output_path)
+            print(f"Wrote offline trace viewer: {output_path}")
+            return 0
         report = render_trace_report(
-            args.trace.expanduser().resolve(),
+            trace_path,
             step=args.step,
             verbose=args.verbose,
             events=args.events,
