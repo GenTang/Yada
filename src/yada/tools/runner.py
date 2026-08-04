@@ -5,6 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable
 
+from yada.editing import (
+    DEFAULT_EDITING_STRATEGY,
+    EditingStrategy,
+    parse_editing_strategy,
+)
 from yada.environments import (
     CommandApprover,
     CommandExecutor,
@@ -37,7 +42,9 @@ class ToolRunner:
         command_environment: dict[str, str] | None = None,
         command_executor: CommandExecutor | None = None,
         approver: CommandApprover | None = None,
+        editing_strategy: EditingStrategy | str = DEFAULT_EDITING_STRATEGY,
     ) -> None:
+        self.editing_strategy = parse_editing_strategy(editing_strategy)
         self.context = ToolContext(
             workspace=Workspace(workspace),
             approver=approver or CommandApprover(command_policy),
@@ -50,9 +57,18 @@ class ToolRunner:
             "search_code": search_code,
             "read_file": read_file,
             "apply_patch": apply_patch,
-            "replace_text": replace_text,
             "run_command": run_command,
         }
+        if self.editing_strategy is EditingStrategy.REPLACE_FIRST:
+            self._handlers["replace_text"] = replace_text
+        self._schemas = [
+            schema
+            for schema in TOOL_SCHEMAS
+            if (
+                self.editing_strategy is EditingStrategy.REPLACE_FIRST
+                or schema["function"]["name"] != "replace_text"
+            )
+        ]
 
     @property
     def workspace(self) -> Workspace:
@@ -64,7 +80,13 @@ class ToolRunner:
     def schemas(self) -> list[dict[str, Any]]:
         """Return the stable tool schemas sent with every model request."""
 
-        return TOOL_SCHEMAS
+        return self._schemas
+
+    @property
+    def tool_names(self) -> tuple[str, ...]:
+        """Return the frozen model-facing tool names for trace metadata."""
+
+        return tuple(schema["function"]["name"] for schema in self._schemas)
 
     def execute(self, name: str, arguments: dict[str, Any]) -> ToolExecution:
         """Dispatch one tool call and normalize expected validation failures.

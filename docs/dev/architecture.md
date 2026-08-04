@@ -85,8 +85,8 @@ requests satisfy DeepSeek's thinking/tool-call contract.
 
 The current `Planner` is deterministic; it is not another model call. It builds
 the initial prompt, interprets assistant output, recovers from text-only turns,
-and rejects unsafe batches such as `finish` mixed with another tool. It has no
-workspace access.
+and rejects unsafe batches such as `finish` mixed with another tool or more than
+one editing operation in one turn. It has no workspace access.
 
 The `Executor` parses tool arguments, preserves model-provided call order,
 invokes `ToolRunner`, and records correlated `tool_call` and `tool_result`
@@ -107,7 +107,9 @@ Yada exposes six tools:
 | `finish` | End only after verification of the latest revision. |
 
 `ToolRunner` composes shared workspace, approval, output-limit, and verification
-state. Handlers remain otherwise stateless. File paths are resolved through the
+state. At run start it freezes either the `patch-only` interface or the
+`replace-first` interface; the implementation still contains both editing tools.
+Handlers remain otherwise stateless. File paths are resolved through the
 workspace boundary, which rejects absolute paths, `..` escapes, symlink escapes,
 and access to `.git` or `.yada` internals.
 
@@ -223,16 +225,17 @@ load, workspace, grading, cache, and artifact sequence.
 
 ## Core invariants
 
-1. System prompt and tool schemas stay stable during a run.
-2. Conversation messages are append-only.
-3. DeepSeek reasoning is preserved across tool-call turns.
-4. File mutation occurs only through a checked unified diff.
-5. Existing patch targets must match their last-read SHA-256.
-6. Every patch invalidates previous verification.
-7. `finish` requires verification of the latest revision.
-8. Trace events are append-only and self-correlating.
-9. Benchmark grading happens outside the agent's tool boundary.
-10. Hidden grading inputs never enter the official Agent command container.
+1. Editing strategy, system prompt, and tool schemas stay stable during a run.
+2. At most one editing operation executes from one Assistant turn.
+3. Conversation messages are append-only.
+4. DeepSeek reasoning is preserved across tool-call turns.
+5. File mutation occurs only through a checked unified diff.
+6. Existing patch targets must match their last-read SHA-256.
+7. Every patch invalidates previous verification.
+8. `finish` requires verification of the latest revision.
+9. Trace events are append-only and self-correlating.
+10. Benchmark grading happens outside the agent's tool boundary.
+11. Hidden grading inputs never enter the official Agent command container.
 
 ## Security boundary
 

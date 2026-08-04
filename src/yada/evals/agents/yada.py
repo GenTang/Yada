@@ -7,12 +7,19 @@ from pathlib import Path
 from typing import Callable
 
 from yada.agents import Agent
+from yada.editing import (
+    DEFAULT_EDITING_STRATEGY,
+    EditingStrategy,
+    parse_editing_strategy,
+)
 from yada.environments import CommandApprover, CommandExecutor, DockerCommandExecutor
 from yada.evals.base import AgentRunResult, PreparedTask, RunBudget
 from yada.evals.patches import collect_git_patch
 from yada.models import CompletionClient, DeepSeekClient
 from yada.tools import ToolRunner
-from yada.traces import TraceWriter
+from yada.traces import TraceWriter, read_trace
+
+_EDITING_TOOLS = frozenset({"apply_patch", "replace_text"})
 
 
 class YadaAgentAdapter:
@@ -32,6 +39,7 @@ class YadaAgentAdapter:
         command_timeout_seconds: int = 120,
         command_policy: str = "ask",
         trace_level: str = "summary",
+        editing_strategy: EditingStrategy | str = DEFAULT_EDITING_STRATEGY,
         client_factory: Callable[[RunBudget], CompletionClient] | None = None,
         emit: Callable[[str], None] = print,
     ) -> None:
@@ -46,6 +54,7 @@ class YadaAgentAdapter:
         self.command_timeout_seconds = command_timeout_seconds
         self.command_policy = command_policy
         self.trace_level = trace_level
+        self.editing_strategy = parse_editing_strategy(editing_strategy)
         self.client_factory = client_factory
         self.emit = emit
 
@@ -75,6 +84,7 @@ class YadaAgentAdapter:
             command_timeout_seconds=self.command_timeout_seconds,
             command_environment=_task_environment(prepared),
             command_executor=_task_command_executor(prepared),
+            editing_strategy=self.editing_strategy,
         )
         command_provenance = _command_provenance(prepared, tools)
         agent = Agent(
@@ -102,6 +112,8 @@ class YadaAgentAdapter:
                 steps = native_result.steps
                 details = {
                     "finished": native_result.finished,
+                    "editing_strategy": self.editing_strategy.value,
+                    "editing_metrics": _editing_metrics(trace_path, tools),
                     **command_provenance,
                 }
             except Exception as exc:
@@ -112,6 +124,7 @@ class YadaAgentAdapter:
                 details = {
                     "error_type": type(exc).__name__,
                     "error": str(exc),
+                    "editing_strategy": self.editing_strategy.value,
                     **command_provenance,
                 }
         finally:
@@ -139,6 +152,56 @@ def _task_environment(prepared: PreparedTask) -> dict[str, str]:
         str(key): str(item)
         for key, item in value.items()
         if isinstance(key, str) and isinstance(item, str)
+    }
+
+
+def _editing_metrics(trace_path: Path, tools: ToolRunner) -> dict[str, object]:
+    """Derive strategy-comparison metrics from one native Yada trace."""
+
+    events = read_trace(trace_path)
+    calls = {
+        str(event["data"].get("tool_call_id")): event["data"]
+        for event in events
+        if event["event"] == "tool_call"
+        and event["data"].get("tool_call_id") is not None
+    }
+    attempts: list[dict[str, object]] = []
+    rejected = 0
+    error_codes: dict[str, int] = {}
+    tool_attempts = {"apply_patch": 0, "replace_text": 0}
+    for event in events:
+        if event["event"] != "tool_result":
+            continue
+        data = event["data"]
+        tool = data.get("tool")
+        if tool not in _EDITING_TOOLS:
+            continue
+        call = calls.get(str(data.get("tool_call_id")), {})
+        if call.get("rejected") is True:
+            rejected += 1
+            continue
+        result = data.get("result")
+        if not isinstance(result, dict):
+            continue
+        attempts.append(result)
+        tool_attempts[str(tool)] += 1
+        error_code = result.get("error_code")
+        if isinstance(error_code, str):
+            error_codes[error_code] = error_codes.get(error_code, 0) + 1
+
+    state = tools.context.state
+    first_success = None if not attempts else attempts[0].get("ok") is True
+    return {
+        "first_edit_attempt_success": first_success,
+        "eventual_mutation_success": state.patch_count > 0,
+        "edit_attempts": len(attempts),
+        "edit_retries": max(0, len(attempts) - 1),
+        "tool_attempts": tool_attempts,
+        "rejected_editing_calls": rejected,
+        "error_codes": error_codes,
+        "verification_success_after_mutation": (
+            state.patch_count > 0 and state.verified_revision == state.revision
+        ),
     }
 
 

@@ -9,6 +9,7 @@ from pathlib import Path
 
 from yada import __version__
 from yada.agents import Agent
+from yada.editing import DEFAULT_EDITING_STRATEGY, EDITING_STRATEGY_CHOICES
 from yada.models import DeepSeekAPIError, DeepSeekClient
 from yada.tools import ToolRunner
 from yada.traces import TraceWriter
@@ -46,6 +47,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--reasoning-effort", choices=["high", "max"], default="max")
     parser.add_argument(
         "--thinking", action=argparse.BooleanOptionalAction, default=True
+    )
+    parser.add_argument(
+        "--editing-strategy",
+        choices=EDITING_STRATEGY_CHOICES,
+        default=DEFAULT_EDITING_STRATEGY.value,
+        help="Run-level editing policy (default: patch-only).",
     )
     parser.add_argument("--max-steps", type=int, default=30)
     parser.add_argument("--max-output-tokens", type=int, default=16_384)
@@ -137,6 +144,7 @@ def run_cli(argv: list[str] | None = None) -> int:
             workspace,
             command_policy=command_policy,
             command_timeout_seconds=args.command_timeout,
+            editing_strategy=args.editing_strategy,
         ),
         trace=TraceWriter(
             trace_path,
@@ -151,6 +159,7 @@ def run_cli(argv: list[str] | None = None) -> int:
         f"Model: {args.model} "
         f"(thinking={args.thinking}, effort={args.reasoning_effort})"
     )
+    print(f"Editing strategy: {args.editing_strategy}")
     print(f"Trace: {trace_path}")
     print(f"Trace level: {args.trace_level}")
     if command_policy == "allow":

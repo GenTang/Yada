@@ -156,7 +156,7 @@ Every schema v2 record contains `schema_version`, `run_id`, `sequence`, UTC
 
 | Event | Meaning | Main correlation |
 | --- | --- | --- |
-| `run_start` | Task, workspace, model config, trace level, and provenance. | `run_id` |
+| `run_start` | Task, workspace, model config, editing strategy, frozen tool names, trace level, and provenance. | `run_id` |
 | `model_request` | Attempted model turn; debug adds `payload`. | `step`, `request_id` |
 | `assistant` | Model message, usage, metadata, finish reason, and latency. | `step`, `request_id` |
 | `model_error` | Model request exception instead of an assistant response. | `step`, `request_id` |

@@ -29,6 +29,8 @@ def test_trace_events_have_correlation_metadata_and_redaction(tmp_path: Path) ->
             "model": "fake",
             "task": "fix",
             "workspace": ".",
+            "editing_strategy": "patch-only",
+            "tool_names": ["read_file", "apply_patch", "finish"],
             "trace_level": "summary",
         },
     )
@@ -55,6 +57,7 @@ def test_trace_events_have_correlation_metadata_and_redaction(tmp_path: Path) ->
 
     report = render_trace_report(path)
     assert "Run: run-test" in report
+    assert "Editing strategy: patch-only" in report
     assert "Trace level: summary" in report
     assert "Outcome: unfinished" in report
     assert "Step 1/1 — fake  7ms  12 tokens  [L2]" in report

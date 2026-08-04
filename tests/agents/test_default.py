@@ -5,6 +5,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from yada.agents import Agent, Planner
 from yada.environments import CommandApprover
 from yada.models import Completion
@@ -161,9 +163,13 @@ def test_debug_trace_reconstructs_exact_client_payload(tmp_path: Path) -> None:
     assert second_messages[-2]["reasoning_content"] == "reasoning for read_file"
     run_start = events[0]["data"]
     assert run_start["trace_level"] == "debug"
+    assert run_start["editing_strategy"] == "patch-only"
+    assert "apply_patch" in run_start["tool_names"]
+    assert "replace_text" not in run_start["tool_names"]
     assert run_start["provenance"]["case_id"] == "fixture-1"
     assert "yada_version" in run_start["provenance"]
     assert "workspace_base_commit" in run_start["provenance"]
+    assert client.seen_payloads[0]["tools"] == client.seen_payloads[1]["tools"]
 
 
 def test_planner_rejects_finish_mixed_with_other_calls() -> None:
@@ -183,6 +189,219 @@ def test_planner_rejects_finish_mixed_with_other_calls() -> None:
     assert plan.rejection_error == (
         "finish must be the only tool call in its assistant turn"
     )
+    assert plan.rejection_error_code == "finish_must_be_alone"
+
+
+def test_strategy_prompts_are_explicit_and_stable() -> None:
+    patch_planner = Planner("patch-only")
+    replace_planner = Planner("replace-first")
+
+    patch_prompt = patch_planner.initial_messages("Fix it")[0]["content"]
+    replace_prompt = replace_planner.initial_messages("Fix it")[0]["content"]
+
+    assert "Editing strategy: patch-only" in patch_prompt
+    assert "Use apply_patch for every workspace edit" in patch_prompt
+    assert "Editing strategy: replace-first" in replace_prompt
+    assert "Prefer replace_text for a localized edit" in replace_prompt
+    assert "stale_hash: re-read before retrying" in replace_prompt
+    assert replace_prompt == replace_planner.initial_messages("Fix it")[0]["content"]
+
+
+def test_agent_rejects_mismatched_strategy_components(tmp_path: Path) -> None:
+    runner = ToolRunner(tmp_path, approver=CommandApprover("allow"))
+
+    with pytest.raises(ValueError, match="same editing strategy"):
+        Agent(
+            client=FakeClient([]),
+            tools=runner,
+            trace=TraceWriter(None),
+            planner=Planner("replace-first"),
+        )
+
+
+def test_planner_rejects_multiple_editing_operations() -> None:
+    planner = Planner("replace-first")
+    assistant_message = {
+        "role": "assistant",
+        "tool_calls": [
+            {"function": {"name": "replace_text", "arguments": "{}"}},
+            {"function": {"name": "apply_patch", "arguments": "{}"}},
+        ],
+    }
+
+    plan = planner.plan(assistant_message, consecutive_text_turns=0)
+
+    assert len(plan.tool_calls) == 2
+    assert plan.rejection_error_code == "multiple_edit_operations"
+    assert plan.rejection_error == (
+        "only one editing operation is allowed per assistant turn"
+    )
+
+
+def test_multiple_editing_calls_are_rejected_without_mutation(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "value.py"
+    path.write_text("VALUE = 1\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "add", "value.py"], cwd=tmp_path, check=True)
+    runner = ToolRunner(
+        tmp_path,
+        approver=CommandApprover("allow"),
+        editing_strategy="replace-first",
+    )
+    digest = runner.workspace.sha256(path)
+    patch = """diff --git a/value.py b/value.py
+--- a/value.py
++++ b/value.py
+@@ -1 +1 @@
+-VALUE = 1
++VALUE = 2
+"""
+    first = Completion(
+        message={
+            "role": "assistant",
+            "content": "",
+            "reasoning_content": "try replace and patch",
+            "tool_calls": [
+                {
+                    "id": "replace",
+                    "type": "function",
+                    "function": {
+                        "name": "replace_text",
+                        "arguments": json.dumps(
+                            {
+                                "edits": [
+                                    {
+                                        "path": "value.py",
+                                        "sha256": digest,
+                                        "old_text": "VALUE = 1",
+                                        "new_text": "VALUE = 2",
+                                    }
+                                ]
+                            }
+                        ),
+                    },
+                },
+                {
+                    "id": "patch",
+                    "type": "function",
+                    "function": {
+                        "name": "apply_patch",
+                        "arguments": json.dumps(
+                            {
+                                "patch": patch,
+                                "expected_files": [
+                                    {"path": "value.py", "sha256": digest}
+                                ],
+                            }
+                        ),
+                    },
+                },
+            ],
+        },
+        usage={},
+        model="fake-deepseek-v4-pro",
+        finish_reason="tool_calls",
+    )
+    client = FakeClient(
+        [
+            first,
+            Completion(
+                message={"role": "assistant", "content": "stop"},
+                usage={},
+                model="fake-deepseek-v4-pro",
+                finish_reason="stop",
+            ),
+        ]
+    )
+    trace_path = tmp_path / ".yada" / "multiple-edits.jsonl"
+    result = Agent(
+        client=client,
+        tools=runner,
+        trace=TraceWriter(trace_path),
+        max_steps=2,
+        emit=lambda _: None,
+    ).run("Change VALUE")
+
+    assert not result.finished
+    assert path.read_text(encoding="utf-8") == "VALUE = 1\n"
+    tool_results = [
+        message for message in client.seen_messages[1] if message.get("role") == "tool"
+    ]
+    assert len(tool_results) == 2
+    assert all(
+        json.loads(message["content"])["error_code"] == "multiple_edit_operations"
+        for message in tool_results
+    )
+    events = read_trace(trace_path)
+    violation = next(
+        event for event in events if event["event"] == "protocol_violation"
+    )
+    assert violation["data"]["error_code"] == "multiple_edit_operations"
+    assert runner.context.state.patch_count == 0
+
+
+def test_failed_replace_is_observed_before_later_patch(tmp_path: Path) -> None:
+    path = tmp_path / "value.py"
+    path.write_text("VALUE = 1\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "add", "value.py"], cwd=tmp_path, check=True)
+    runner = ToolRunner(
+        tmp_path,
+        approver=CommandApprover("allow"),
+        editing_strategy="replace-first",
+    )
+    digest = runner.workspace.sha256(path)
+    patch = """diff --git a/value.py b/value.py
+--- a/value.py
++++ b/value.py
+@@ -1 +1 @@
+-VALUE = 1
++VALUE = 2
+"""
+    client = FakeClient(
+        [
+            tool_call(
+                "replace",
+                "replace_text",
+                {
+                    "edits": [
+                        {
+                            "path": "value.py",
+                            "sha256": digest,
+                            "old_text": "VALUE = 9",
+                            "new_text": "VALUE = 2",
+                        }
+                    ]
+                },
+            ),
+            tool_call(
+                "patch",
+                "apply_patch",
+                {
+                    "patch": patch,
+                    "expected_files": [{"path": "value.py", "sha256": digest}],
+                },
+            ),
+        ]
+    )
+    trace_path = tmp_path / ".yada" / "fallback.jsonl"
+    result = Agent(
+        client=client,
+        tools=runner,
+        trace=TraceWriter(trace_path, level="debug"),
+        max_steps=2,
+        emit=lambda _: None,
+    ).run("Change VALUE")
+
+    assert not result.finished
+    assert path.read_text(encoding="utf-8") == "VALUE = 2\n"
+    observed = json.loads(client.seen_messages[1][-1]["content"])
+    assert observed["error_code"] == "no_match"
+    start = read_trace(trace_path)[0]["data"]
+    assert start["editing_strategy"] == "replace-first"
+    assert "replace_text" in start["tool_names"]
 
 
 def test_planner_escalates_repeated_text_only_turns() -> None:

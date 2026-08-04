@@ -49,6 +49,30 @@ new file mode 100644
 """
 
 
+def test_editing_strategy_freezes_public_tool_interface(
+    git_workspace: Path,
+) -> None:
+    patch_only = ToolRunner(
+        git_workspace,
+        approver=CommandApprover("allow"),
+    )
+    replace_first = ToolRunner(
+        git_workspace,
+        approver=CommandApprover("allow"),
+        editing_strategy="replace-first",
+    )
+
+    assert patch_only.editing_strategy.value == "patch-only"
+    assert "apply_patch" in patch_only.tool_names
+    assert "replace_text" not in patch_only.tool_names
+    assert replace_first.editing_strategy.value == "replace-first"
+    assert "apply_patch" in replace_first.tool_names
+    assert "replace_text" in replace_first.tool_names
+    assert patch_only.schemas is patch_only.schemas
+    assert replace_first.schemas is replace_first.schemas
+    assert not patch_only.execute("replace_text", {"edits": []}).data["ok"]
+
+
 def test_read_and_hash_checked_patch(
     git_workspace: Path, tool_runner: ToolRunner
 ) -> None:

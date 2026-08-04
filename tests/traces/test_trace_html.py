@@ -23,6 +23,8 @@ def test_completed_trace_renders_offline_semantic_view(
         {
             "model": "deepseek-v4-pro",
             "task": "Fix parser\n\nA long issue description that stays collapsed.",
+            "editing_strategy": "replace-first",
+            "tool_names": ["read_file", "replace_text", "apply_patch"],
             "trace_level": "debug",
             "model_config": {"thinking": True},
             "provenance": {"yada_version": "0.1.0", "case_id": "parser-1"},
@@ -102,6 +104,8 @@ def test_completed_trace_renders_offline_semantic_view(
         '<details class="trace-section task-detail"><summary>Task</summary>' in document
     )
     assert "A long issue description that stays collapsed." in document
+    assert "replace-first" in document
+    assert "replace_text" in document
     assert "Resolved · 1 step" in document
     assert "The boundary is off by one." in document
     assert "<summary>Reasoning</summary>" not in document

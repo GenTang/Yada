@@ -70,6 +70,29 @@ When thinking is enabled, Yada retains `reasoning_content` across tool-calling
 turns as required by DeepSeek. In non-thinking mode, Yada uses ordinary automatic
 tool selection.
 
+## Editing strategy
+
+Editing strategy is frozen for the complete run:
+
+| Strategy | Editing tools shown to the model | Policy |
+| --- | --- | --- |
+| `patch-only` | `apply_patch` | Express every edit as a checked unified diff. |
+| `replace-first` | `replace_text`, `apply_patch` | Prefer exact replacement for localized edits and use patch for unsuitable operations. |
+
+`patch-only` is the default until controlled evaluation supports changing it:
+
+```bash
+uv run yada "Fix the localized parser bug" \
+  --workspace /path/to/repository \
+  --editing-strategy replace-first
+```
+
+Both strategies allow at most one editing tool call per Assistant turn. This
+prevents a replacement and a precomputed patch from acting as an opaque
+same-turn fallback. See the
+[editing strategy design](dev/editing-strategy.md) for routing and recovery
+rules.
+
 ## Command execution policy
 
 Repository commands are independently validated and then handled by one of

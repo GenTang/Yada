@@ -346,6 +346,7 @@ def _report_header(path: Path, run: TraceRun) -> list[str]:
         f"Path: {path}",
         f"Run: {run_id}",
         f"Model: {start_data.get('model', 'unknown')}",
+        f"Editing strategy: {start_data.get('editing_strategy', 'legacy')}",
         f"Trace level: {start_data.get('trace_level', 'legacy')}",
         f"Task: {_one_line(start_data.get('task', 'unknown'), 160)}",
         f"Outcome: {outcome}",

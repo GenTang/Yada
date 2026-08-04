@@ -21,4 +21,8 @@ def git_workspace(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def tool_runner(git_workspace: Path) -> ToolRunner:
-    return ToolRunner(git_workspace, approver=CommandApprover("allow"))
+    return ToolRunner(
+        git_workspace,
+        approver=CommandApprover("allow"),
+        editing_strategy="replace-first",
+    )

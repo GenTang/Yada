@@ -9,6 +9,7 @@ import shlex
 import sys
 from pathlib import Path
 
+from yada.editing import DEFAULT_EDITING_STRATEGY, EDITING_STRATEGY_CHOICES
 from yada.evals.agents import CommandAgentAdapter, YadaAgentAdapter
 from yada.evals.base import RunBudget
 from yada.evals.benchmarks import LocalBenchmark, SWEbenchBenchmark
@@ -80,6 +81,12 @@ def build_parser() -> argparse.ArgumentParser:
         action=argparse.BooleanOptionalAction,
         default=True,
     )
+    model.add_argument(
+        "--editing-strategy",
+        choices=EDITING_STRATEGY_CHOICES,
+        default=DEFAULT_EDITING_STRATEGY.value,
+        help="Run-level editing policy for the native Yada agent.",
+    )
     model.add_argument("--api-timeout", type=int, default=300)
     model.add_argument("--command-timeout", type=int, default=120)
     model.add_argument(
@@ -144,6 +151,7 @@ def run_cli(argv: list[str] | None = None) -> int:
             command_timeout_seconds=args.command_timeout,
             command_policy="allow" if args.yes else args.command_policy,
             trace_level=args.trace_level,
+            editing_strategy=args.editing_strategy,
         )
     else:
         if not args.agent_command:

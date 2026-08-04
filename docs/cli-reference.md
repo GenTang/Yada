@@ -36,6 +36,7 @@ uv run yada --task-file issue.md --workspace /path/to/repository
 | `--base-url URL` | DeepSeek-compatible API base URL. | `DEEPSEEK_BASE_URL` or `https://api.deepseek.com` |
 | `--reasoning-effort high\|max` | Thinking effort. | `max` |
 | `--thinking` / `--no-thinking` | Enable or disable thinking. | Enabled |
+| `--editing-strategy patch-only\|replace-first` | Freeze the run-level editing policy and model-facing edit tools. | `patch-only` |
 | `--max-steps N` | Maximum model turns. | `30` |
 | `--max-output-tokens N` | Maximum tokens requested per completion. | `16384` |
 | `--api-timeout SECONDS` | Timeout for one model request. | `300` |
@@ -289,11 +290,27 @@ container; Yada's automatic Agent command container applies only to the native
 | `--max-steps N` | Model-turn budget. | `30` |
 | `--wall-time SECONDS` | Comparable wall-time budget. | `1800` |
 | `--max-output-tokens N` | Per-completion token limit. | `16384` |
+| `--editing-strategy patch-only\|replace-first` | Native Yada editing policy. | `patch-only` |
 
 The native agent also accepts the model, thinking, timeout, command-policy, and
 trace-level options documented for `yada`. A deployment-level supervisor should
 enforce a hard wall-time limit for an in-process native agent. Use the same task,
 base commit, model budget, network policy, and grader when comparing agents.
+
+For a controlled editing-policy comparison, run the same case once with each
+strategy while holding the remaining options constant:
+
+```bash
+uv run yada eval --case CASE --agent yada --yes \
+  --editing-strategy patch-only --output results/patch-only.json
+
+uv run yada eval --case CASE --agent yada --yes \
+  --editing-strategy replace-first --output results/replace-first.json
+```
+
+The result's `agent_run.details` records `editing_strategy` and
+`editing_metrics`; the benchmark grader remains authoritative for resolved-task
+status.
 
 Evaluation exits with `0` for `resolved`, `1` for `unresolved`, and `2` for
 errors or non-verdict outcomes such as skipped grading.

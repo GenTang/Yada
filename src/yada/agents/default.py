@@ -72,7 +72,14 @@ class Agent:
         self.trace = trace
         self.max_steps = max_steps
         self.emit = emit
-        self.planner = planner or Planner()
+        if (
+            planner is not None
+            and planner.editing_strategy is not tools.editing_strategy
+        ):
+            raise ValueError(
+                "planner and tool runner must use the same editing strategy"
+            )
+        self.planner = planner or Planner(tools.editing_strategy)
         self.executor = executor or Executor(tools=tools, trace=trace, emit=emit)
         self.trace_metadata = dict(trace_metadata or {})
 
@@ -99,6 +106,8 @@ class Agent:
                 "task": task,
                 "workspace": str(self.tools.workspace.root),
                 "max_steps": self.max_steps,
+                "editing_strategy": self.tools.editing_strategy.value,
+                "tool_names": list(self.tools.tool_names),
                 "trace_level": self.trace.level,
                 "model_config": client_trace_config(self.client),
                 "provenance": collect_provenance(
@@ -183,6 +192,7 @@ class Agent:
                     "action": "execute_tools" if plan.tool_calls else "remind",
                     "tools": [tool_name(call) for call in plan.tool_calls],
                     "rejection_error": plan.rejection_error,
+                    "rejection_error_code": plan.rejection_error_code,
                 },
             )
             consecutive_text_turns = plan.consecutive_text_turns
@@ -201,6 +211,7 @@ class Agent:
                 step,
                 plan.tool_calls,
                 rejection_error=plan.rejection_error,
+                rejection_error_code=plan.rejection_error_code,
             )
             for executed in executed_calls:
                 messages.append(

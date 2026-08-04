@@ -48,6 +48,7 @@ class Executor:
         tool_calls: tuple[dict[str, Any], ...],
         *,
         rejection_error: str | None = None,
+        rejection_error_code: str | None = None,
     ) -> list[ExecutedToolCall]:
         """Execute a validated batch while preserving model call order.
 
@@ -55,6 +56,7 @@ class Executor:
             step: One-based agent-loop step used for trace correlation.
             tool_calls: Calls from the current assistant response.
             rejection_error: If set, reject every call without side effects.
+            rejection_error_code: Stable code attached to every rejection result.
 
         Returns:
             One result per input call in the same order.
@@ -63,19 +65,38 @@ class Executor:
         if rejection_error is not None:
             self.trace.write(
                 "protocol_violation",
-                {"step": step, "error": rejection_error, "call_count": len(tool_calls)},
+                {
+                    "step": step,
+                    "error_code": rejection_error_code,
+                    "error": rejection_error,
+                    "call_count": len(tool_calls),
+                },
             )
             return [
-                self._rejected_call(step, call, rejection_error) for call in tool_calls
+                self._rejected_call(
+                    step,
+                    call,
+                    rejection_error,
+                    error_code=rejection_error_code,
+                )
+                for call in tool_calls
             ]
         return [self._execute_tool_call(step, call) for call in tool_calls]
 
     def _rejected_call(
-        self, step: int, call: dict[str, Any], error: str
+        self,
+        step: int,
+        call: dict[str, Any],
+        error: str,
+        *,
+        error_code: str | None = None,
     ) -> ExecutedToolCall:
         call_id = _tool_call_id(call, step)
         name = tool_name(call)
-        execution = ToolExecution({"ok": False, "error": error})
+        data = {"ok": False, "error": error}
+        if error_code is not None:
+            data["error_code"] = error_code
+        execution = ToolExecution(data)
         self.trace.write(
             "tool_call",
             {
@@ -83,6 +104,7 @@ class Executor:
                 "tool_call_id": call_id,
                 "tool": name,
                 "rejected": True,
+                "error_code": error_code,
             },
         )
         self._trace_result(step, call_id, name, execution, duration_ms=0)

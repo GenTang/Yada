@@ -119,6 +119,14 @@ def _render_run_details(run: TraceRun) -> str:
         open_by_default=False,
     )
     details += _details(
+        "Editing strategy",
+        {
+            "editing_strategy": start.get("editing_strategy", "legacy"),
+            "tool_names": start.get("tool_names", "Unavailable"),
+        },
+        open_by_default=False,
+    )
+    details += _details(
         "Provenance",
         start.get("provenance", "Unavailable"),
         open_by_default=False,
