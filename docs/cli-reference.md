@@ -36,7 +36,7 @@ uv run yada --task-file issue.md --workspace /path/to/repository
 | `--base-url URL` | DeepSeek-compatible API base URL. | `DEEPSEEK_BASE_URL` or `https://api.deepseek.com` |
 | `--reasoning-effort high\|max` | Thinking effort. | `max` |
 | `--thinking` / `--no-thinking` | Enable or disable thinking. | Enabled |
-| `--editing-strategy patch-only\|replace-first` | Freeze the run-level editing policy and model-facing edit tools. | `patch-only` |
+| `--editing-strategy patch-only\|replace-first` | Freeze the run-level editing policy and model-facing edit tools. | `replace-first` |
 | `--max-steps N` | Maximum model turns. | `30` |
 | `--max-output-tokens N` | Maximum tokens requested per completion. | `16384` |
 | `--api-timeout SECONDS` | Timeout for one model request. | `300` |
@@ -290,7 +290,7 @@ container; Yada's automatic Agent command container applies only to the native
 | `--max-steps N` | Model-turn budget. | `30` |
 | `--wall-time SECONDS` | Comparable wall-time budget. | `1800` |
 | `--max-output-tokens N` | Per-completion token limit. | `16384` |
-| `--editing-strategy patch-only\|replace-first` | Native Yada editing policy. | `patch-only` |
+| `--editing-strategy patch-only\|replace-first` | Native Yada editing policy. | `replace-first` |
 
 The native agent also accepts the model, thinking, timeout, command-policy, and
 trace-level options documented for `yada`. A deployment-level supervisor should

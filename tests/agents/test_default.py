@@ -163,9 +163,9 @@ def test_debug_trace_reconstructs_exact_client_payload(tmp_path: Path) -> None:
     assert second_messages[-2]["reasoning_content"] == "reasoning for read_file"
     run_start = events[0]["data"]
     assert run_start["trace_level"] == "debug"
-    assert run_start["editing_strategy"] == "patch-only"
+    assert run_start["editing_strategy"] == "replace-first"
     assert "apply_patch" in run_start["tool_names"]
-    assert "replace_text" not in run_start["tool_names"]
+    assert "replace_text" in run_start["tool_names"]
     assert run_start["provenance"]["case_id"] == "fixture-1"
     assert "yada_version" in run_start["provenance"]
     assert "workspace_base_commit" in run_start["provenance"]
@@ -201,9 +201,12 @@ def test_strategy_prompts_are_explicit_and_stable() -> None:
 
     assert "Editing strategy: patch-only" in patch_prompt
     assert "Use apply_patch for every workspace edit" in patch_prompt
+    assert "After a patch failure, follow its structured error" in patch_prompt
     assert "Editing strategy: replace-first" in replace_prompt
     assert "Prefer replace_text for a localized edit" in replace_prompt
-    assert "stale_hash: re-read before retrying" in replace_prompt
+    assert "Once the target and exact replacement are clear" in replace_prompt
+    assert "Do not repeat" in replace_prompt
+    assert "After an edit failure, use its structured error" in replace_prompt
     assert replace_prompt == replace_planner.initial_messages("Fix it")[0]["content"]
 
 
@@ -215,7 +218,7 @@ def test_agent_rejects_mismatched_strategy_components(tmp_path: Path) -> None:
             client=FakeClient([]),
             tools=runner,
             trace=TraceWriter(None),
-            planner=Planner("replace-first"),
+            planner=Planner("patch-only"),
         )
 
 

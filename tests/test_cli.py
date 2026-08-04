@@ -11,5 +11,5 @@ def test_direct_cli_exposes_editing_strategy() -> None:
         ["Fix it", "--editing-strategy", "replace-first"]
     )
 
-    assert default.editing_strategy == "patch-only"
+    assert default.editing_strategy == "replace-first"
     assert replace_first.editing_strategy == "replace-first"

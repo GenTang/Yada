@@ -37,10 +37,8 @@ Tool strategy:
 _PATCH_ONLY_POLICY = """
 Editing strategy: patch-only.
 - Use apply_patch for every workspace edit.
-- stale_hash: re-read affected files before retrying.
-- invalid_patch: correct or regenerate the patch.
-- patch_context_mismatch: re-read affected files and regenerate the patch.
-- apply_failed: preserve the diagnostic evidence; do not attempt hidden recovery.
+- After a patch failure, follow its structured error: re-read stale or mismatched
+  targets, correct invalid patches, and preserve apply_failed diagnostics.
 - apply_patch: make a version-checked unified-diff edit.
 """
 
@@ -50,18 +48,16 @@ Editing strategy: replace-first.
   old_text is an exact, unique, reasonably bounded anchor.
 - Use apply_patch directly for file creation or deletion, large structural rewrites,
   impractically large anchors, and operations unsupported by replace_text.
+- Once the target and exact replacement are clear, edit promptly. Do not repeat
+  searches that only confirm already established facts.
 - Submit at most one editing operation per assistant turn. A patch generated in the
   same turn as a replacement is not a fallback.
 - Fallback means choosing apply_patch in a later turn after observing the failed
   replacement and re-reading when required.
-- stale_hash: re-read before retrying; never fall back automatically.
-- no_match: re-read relevant content, then use current exact text or a deliberate patch.
-- ambiguous_match: read a narrower range or enlarge the anchor until it is unique.
-- invalid_edit: correct the arguments in a later turn.
-- unsupported_target: use apply_patch only if its contract supports the operation.
-- invalid_patch: correct or regenerate the patch.
-- patch_context_mismatch: re-read affected files and regenerate the patch.
-- apply_failed: preserve the diagnostic evidence; do not attempt hidden fallback.
+- After an edit failure, use its structured error and current file contents to decide
+  a later-turn retry or fallback; re-read whenever the target may be stale or unclear.
+- Correct invalid arguments, use patches only for supported operations, and preserve
+  apply_failed diagnostics instead of attempting hidden recovery.
 - replace_text: make exact, unique, version-checked replacements in existing text.
 - apply_patch: make a version-checked unified-diff edit.
 """

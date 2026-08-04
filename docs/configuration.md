@@ -79,12 +79,13 @@ Editing strategy is frozen for the complete run:
 | `patch-only` | `apply_patch` | Express every edit as a checked unified diff. |
 | `replace-first` | `replace_text`, `apply_patch` | Prefer exact replacement for localized edits and use patch for unsuitable operations. |
 
-`patch-only` is the default until controlled evaluation supports changing it:
+`replace-first` is the default. Select `patch-only` explicitly when every edit must
+use a checked unified diff:
 
 ```bash
 uv run yada "Fix the localized parser bug" \
   --workspace /path/to/repository \
-  --editing-strategy replace-first
+  --editing-strategy patch-only
 ```
 
 Both strategies allow at most one editing tool call per Assistant turn. This

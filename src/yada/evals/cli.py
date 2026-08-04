@@ -85,7 +85,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--editing-strategy",
         choices=EDITING_STRATEGY_CHOICES,
         default=DEFAULT_EDITING_STRATEGY.value,
-        help="Run-level editing policy for the native Yada agent.",
+        help=(
+            "Run-level editing policy for the native Yada agent "
+            f"(default: {DEFAULT_EDITING_STRATEGY.value})."
+        ),
     )
     model.add_argument("--api-timeout", type=int, default=300)
     model.add_argument("--command-timeout", type=int, default=120)

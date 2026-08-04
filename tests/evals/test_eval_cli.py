@@ -15,7 +15,7 @@ def test_eval_cli_has_two_task_selectors() -> None:
     assert case.swebench is None
     assert swebench.case is None
     assert swebench.swebench == "owner__repo-1"
-    assert case.editing_strategy == "patch-only"
+    assert case.editing_strategy == "replace-first"
 
 
 def test_eval_cli_exposes_editing_strategy() -> None:

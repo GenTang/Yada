@@ -12,7 +12,7 @@ class EditingStrategy(str, Enum):
     REPLACE_FIRST = "replace-first"
 
 
-DEFAULT_EDITING_STRATEGY = EditingStrategy.PATCH_ONLY
+DEFAULT_EDITING_STRATEGY = EditingStrategy.REPLACE_FIRST
 EDITING_STRATEGY_CHOICES = tuple(strategy.value for strategy in EditingStrategy)
 
 

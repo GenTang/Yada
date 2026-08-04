@@ -106,6 +106,18 @@ def _render_header(path: Path, run: TraceRun) -> str:
 def _render_run_details(run: TraceRun) -> str:
     start = run.run_start.data if run.run_start else {}
     end = run.run_end.data if run.run_end else {}
+    raw_model_config = start.get("model_config")
+    model_config = (
+        dict(raw_model_config)
+        if isinstance(raw_model_config, dict)
+        else {"configuration": raw_model_config or "Unavailable"}
+    )
+    model_config.update(
+        {
+            "editing_strategy": start.get("editing_strategy", "legacy"),
+            "tool_names": start.get("tool_names", "Unavailable"),
+        }
+    )
     details = '<section class="run-details">'
     details += _details(
         "Task",
@@ -115,15 +127,7 @@ def _render_run_details(run: TraceRun) -> str:
     )
     details += _details(
         "Model configuration",
-        start.get("model_config", "Unavailable"),
-        open_by_default=False,
-    )
-    details += _details(
-        "Editing strategy",
-        {
-            "editing_strategy": start.get("editing_strategy", "legacy"),
-            "tool_names": start.get("tool_names", "Unavailable"),
-        },
+        model_config,
         open_by_default=False,
     )
     details += _details(

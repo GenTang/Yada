@@ -52,9 +52,14 @@ new file mode 100644
 def test_editing_strategy_freezes_public_tool_interface(
     git_workspace: Path,
 ) -> None:
+    default_runner = ToolRunner(
+        git_workspace,
+        approver=CommandApprover("allow"),
+    )
     patch_only = ToolRunner(
         git_workspace,
         approver=CommandApprover("allow"),
+        editing_strategy="patch-only",
     )
     replace_first = ToolRunner(
         git_workspace,
@@ -62,6 +67,8 @@ def test_editing_strategy_freezes_public_tool_interface(
         editing_strategy="replace-first",
     )
 
+    assert default_runner.editing_strategy.value == "replace-first"
+    assert "replace_text" in default_runner.tool_names
     assert patch_only.editing_strategy.value == "patch-only"
     assert "apply_patch" in patch_only.tool_names
     assert "replace_text" not in patch_only.tool_names

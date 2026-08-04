@@ -106,6 +106,11 @@ def test_completed_trace_renders_offline_semantic_view(
     assert "A long issue description that stays collapsed." in document
     assert "replace-first" in document
     assert "replace_text" in document
+    assert "<summary>Model configuration</summary>" in document
+    assert "<summary>Editing strategy</summary>" not in document
+    assert "&quot;editing_strategy&quot;: &quot;replace-first&quot;" in document
+    assert "&quot;thinking&quot;: true" in document
+    assert "&quot;tool_names&quot;" in document
     assert "Resolved · 1 step" in document
     assert "The boundary is off by one." in document
     assert "<summary>Reasoning</summary>" not in document

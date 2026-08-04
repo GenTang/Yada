@@ -63,7 +63,8 @@ Yada supports:
 | patch-only | apply_patch | Express every workspace edit as a checked unified diff. |
 | replace-first | replace_text and apply_patch | Prefer exact replacement for suitable localized edits and patch otherwise. |
 
-patch-only remains the default until benchmark evidence supports changing it.
+replace-first is the default. patch-only remains available as an explicit baseline
+and for runs that require unified-diff-only editing.
 
 The strategy is selected once through:
 
@@ -124,7 +125,7 @@ model has observed a replace_text failure. It does not mean:
 - Yada converting failed replacement arguments into a patch;
 - the model submitting replace_text and apply_patch in the same response.
 
-The strategy prompt contains this recovery matrix:
+The detailed recovery matrix is the design and test reference:
 
 | Error code | Required model response |
 | --- | --- |
@@ -138,6 +139,12 @@ The strategy prompt contains this recovery matrix:
 | apply_failed | Preserve and act on the diagnostic evidence; Yada performs no fallback. |
 
 invalid_patch comes from Issue #8, on which Issue #10 depends.
+
+The system prompt summarizes this table as a small number of principles: use the
+structured error, re-read when the target may be stale or unclear, retry or fall
+back only in a later turn, correct invalid arguments, and preserve apply_failed
+diagnostics. Keeping the full table here avoids paying for and repeatedly presenting
+the same verbose matrix on every model turn.
 
 The host does not enforce a multi-stage recovery protocol. If the model ignores
 the prompt, the resulting call is handled by the ordinary tool contract and
