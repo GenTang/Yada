@@ -49,6 +49,40 @@ new file mode 100644
 """
 
 
+def test_editing_strategy_freezes_public_tool_interface(
+    git_workspace: Path,
+) -> None:
+    default_runner = ToolRunner(
+        git_workspace,
+        approver=CommandApprover("allow"),
+    )
+    patch_only = ToolRunner(
+        git_workspace,
+        approver=CommandApprover("allow"),
+        editing_strategy="patch-only",
+    )
+    replace_first = ToolRunner(
+        git_workspace,
+        approver=CommandApprover("allow"),
+        editing_strategy="replace-first",
+    )
+
+    assert default_runner.editing_strategy.value == "replace-first"
+    assert "replace_text" in default_runner.tool_names
+    assert "finish_task" in default_runner.tool_names
+    assert "finish" not in default_runner.tool_names
+    assert not default_runner.execute("finish", {"summary": "done"}).data["ok"]
+    assert patch_only.editing_strategy.value == "patch-only"
+    assert "apply_patch" in patch_only.tool_names
+    assert "replace_text" not in patch_only.tool_names
+    assert replace_first.editing_strategy.value == "replace-first"
+    assert "apply_patch" in replace_first.tool_names
+    assert "replace_text" in replace_first.tool_names
+    assert patch_only.schemas is patch_only.schemas
+    assert replace_first.schemas is replace_first.schemas
+    assert not patch_only.execute("replace_text", {"edits": []}).data["ok"]
+
+
 def test_read_and_hash_checked_patch(
     git_workspace: Path, tool_runner: ToolRunner
 ) -> None:
@@ -321,7 +355,7 @@ def test_finish_requires_verification_after_latest_patch(
         },
     )
 
-    premature = tool_runner.execute("finish", {"summary": "done"})
+    premature = tool_runner.execute("finish_task", {"summary": "done"})
     assert not premature.data["ok"]
 
     checked = tool_runner.execute(
@@ -334,7 +368,7 @@ def test_finish_requires_verification_after_latest_patch(
     assert checked.data["ok"]
     assert checked.data["exit_code"] == 0
 
-    finished = tool_runner.execute("finish", {"summary": "fixed answer"})
+    finished = tool_runner.execute("finish_task", {"summary": "fixed answer"})
     assert finished.finished
     assert finished.data["ok"]
 

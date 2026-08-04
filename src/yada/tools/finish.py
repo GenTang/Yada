@@ -10,7 +10,7 @@ from yada.tools.base import ToolContext, ToolExecution
 from yada.utils.text import truncate_text
 
 
-def finish(context: ToolContext, summary: str) -> ToolExecution:
+def finish_task(context: ToolContext, summary: str) -> ToolExecution:
     """Complete a run only after the latest revision passes verification.
 
     Args:
@@ -27,14 +27,14 @@ def finish(context: ToolContext, summary: str) -> ToolExecution:
     if not isinstance(summary, str) or not summary.strip():
         raise ToolError("summary must be a non-empty string")
     if context.state.patch_count == 0:
-        raise ToolError("finish rejected: no patch has been applied")
+        raise ToolError("finish_task rejected: no patch has been applied")
     if context.state.verified_revision != context.state.revision:
         raise ToolError(
-            "finish rejected: run a successful test or build after the latest patch"
+            "finish_task rejected: run a successful test or build after the latest patch"
         )
     diff_check = _git_diff_check(context)
     if diff_check:
-        raise ToolError(f"finish rejected by git diff --check: {diff_check}")
+        raise ToolError(f"finish_task rejected by git diff --check: {diff_check}")
     return ToolExecution(
         {
             "ok": True,
