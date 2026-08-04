@@ -324,9 +324,9 @@ uv run yada-trace TRACE.jsonl --html trace.html
 
 Without an output path, `--html` writes `TRACE.html` beside `TRACE.jsonl` and
 opens it in the default browser. Pass a path to export the viewer without opening
-it. The HTML viewer groups the same validated records by step and adds local search,
-failure/file-change filters, collapsed large payloads, message-field presence,
-and the final diff. It contains inline CSS and JavaScript only: opening the file
+it. The HTML viewer groups the same validated records by step and adds local step
+filtering, failure/file-change filters, collapsed large payloads, and the final
+diff. It contains inline CSS and JavaScript only: opening the file
 does not start a server or request external resources. The generated file can
 contain prompts, reasoning, source, patches, and command output from the source
 trace, so handle it with the same care as the JSONL.

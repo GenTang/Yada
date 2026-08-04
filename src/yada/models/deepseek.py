@@ -98,10 +98,6 @@ class DeepSeekClient:
             for key in ("role", "content", "reasoning_content", "tool_calls")
             if key in raw_message
         }
-        message_field_presence = {
-            key: key in raw_message
-            for key in ("role", "content", "reasoning_content", "tool_calls")
-        }
         message.setdefault("role", "assistant")
         message.setdefault("content", "")
         return Completion(
@@ -111,7 +107,6 @@ class DeepSeekClient:
             model=response_data.get("model"),
             system_fingerprint=response_data.get("system_fingerprint"),
             finish_reason=choice.get("finish_reason"),
-            message_field_presence=message_field_presence,
         )
 
     def request_payload(

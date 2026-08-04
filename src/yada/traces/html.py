@@ -17,9 +17,9 @@ from yada.traces.report import (
     read_located_trace,
 )
 
-_FIELDS = ("role", "content", "reasoning_content", "tool_calls")
 _EDIT_TOOLS = {"apply_patch", "replace_text"}
 _COLLAPSE_CHARS = 4_000
+_TITLE_CHARS = 120
 
 
 def render_trace_html(path: Path) -> str:
@@ -43,9 +43,9 @@ def render_trace_html(path: Path) -> str:
         + _render_run_details(run)
         + '<div class="workspace">'
         + '<aside class="sidebar">'
-        + '<label for="trace-search">Search this trace</label>'
-        + '<input id="trace-search" type="search" '
-        + 'placeholder="Prompt, tool, file, error…">'
+        + '<label for="step-filter">Filter steps</label>'
+        + '<input id="step-filter" type="search" '
+        + 'placeholder="Prompt, response, tool, file, error…">'
         + '<p id="search-status" class="search-status" aria-live="polite"></p>'
         + _render_filters()
         + f'<nav id="step-list" aria-label="Agent steps">{navigation}</nav>'
@@ -74,6 +74,7 @@ def write_trace_html(trace_path: Path, output_path: Path) -> None:
 
 def _render_header(path: Path, run: TraceRun) -> str:
     start = run.run_start.data if run.run_start else {}
+    task = start.get("task")
     outcome, outcome_class = _outcome(run)
     token_count = _run_tokens(run)
     latency = _last_elapsed(run)
@@ -87,7 +88,7 @@ def _render_header(path: Path, run: TraceRun) -> str:
 <header class="run-header">
   <div>
     <p class="eyebrow">Yada trace viewer · offline</p>
-    <h1>{_escape(start.get("task", "Untitled run"))}</h1>
+    <h1>{_escape(_task_title(task))}</h1>
     <p class="muted">{_escape(path)} · run {_escape(_run_id(run))}</p>
   </div>
   <div class="metrics">
@@ -107,14 +108,19 @@ def _render_run_details(run: TraceRun) -> str:
     end = run.run_end.data if run.run_end else {}
     details = '<section class="run-details">'
     details += _details(
+        "Task",
+        start.get("task", "Unavailable"),
+        open_by_default=False,
+    )
+    details += _details(
         "Model configuration",
         start.get("model_config", "Unavailable"),
-        open_by_default=True,
+        open_by_default=False,
     )
     details += _details(
         "Provenance",
         start.get("provenance", "Unavailable"),
-        open_by_default=True,
+        open_by_default=False,
     )
     final_state = end.get("final_state")
     if isinstance(final_state, dict):
@@ -124,7 +130,7 @@ def _render_run_details(run: TraceRun) -> str:
                 "git_status": final_state.get("git_status"),
                 "diff_stat": final_state.get("diff_stat"),
             },
-            open_by_default=True,
+            open_by_default=False,
         )
         details += _details(
             "Final diff",
@@ -135,7 +141,7 @@ def _render_run_details(run: TraceRun) -> str:
         details += _details(
             "Final diff",
             "Unavailable: the trace has no captured final state.",
-            open_by_default=True,
+            open_by_default=False,
         )
     return details + "</section>"
 
@@ -184,7 +190,7 @@ def _render_step(step: TraceStep, *, selected: bool) -> str:
     badges = "".join(f'<span class="badge">{_escape(flag)}</span>' for flag in flags)
     warnings = _render_step_warnings(step)
     request = _located(step.model_request)
-    response = _response_without_reasoning(step.model_response)
+    response = _response(step.model_response)
     plan = _located(step.plan_decision)
     calls = [_located(execution.call) for execution in step.tool_executions]
     results = [_located(execution.result) for execution in step.tool_executions]
@@ -197,58 +203,12 @@ def _render_step(step: TraceStep, *, selected: bool) -> str:
   </header>
   {warnings}
   {_details("Request", request or "Missing model request", open_by_default=False)}
-  {_render_reasoning(step.model_response)}
-  {_render_presence(step.model_response)}
   {_details("Response", response or "Missing model response", open_by_default=True)}
   {_details("Plan", plan or "No plan decision recorded", open_by_default=True)}
   {_details("Tool Calls", calls or "No tool calls", open_by_default=True)}
   {_details("Tool Results", results or "No tool results", open_by_default=True)}
 </article>
 """
-
-
-def _render_reasoning(response: LocatedTraceEvent | None) -> str:
-    if response is None or response.name != "assistant":
-        return _details(
-            "Reasoning", "Unavailable: no assistant response.", open_by_default=True
-        )
-    message = response.data.get("message")
-    if not isinstance(message, dict) or "reasoning_content" not in message:
-        return _details("Reasoning", "Omitted by the model.", open_by_default=True)
-    reasoning = message["reasoning_content"]
-    if isinstance(reasoning, dict) and reasoning.get("redacted") is True:
-        chars = reasoning.get("chars", "unknown")
-        note = f"Redacted in the source trace ({chars} characters)."
-        return (
-            '<details class="trace-section" open><summary>Reasoning</summary>'
-            f'<p class="notice">{_escape(note)}</p><pre>{_json(reasoning)}</pre>'
-            "</details>"
-        )
-    return _details("Reasoning", reasoning, open_by_default=True)
-
-
-def _render_presence(response: LocatedTraceEvent | None) -> str:
-    if response is None or response.name != "assistant":
-        return ""
-    presence = response.data.get("message_field_presence")
-    if not isinstance(presence, dict):
-        return (
-            '<section class="presence"><h3>Message field presence</h3>'
-            '<p class="muted">Unavailable for this legacy trace.</p></section>'
-        )
-    fields = []
-    for field in _FIELDS:
-        value = presence.get(field)
-        state = (
-            "present" if value is True else "omitted" if value is False else "unknown"
-        )
-        fields.append(
-            f'<span class="presence-item"><code>{field}</code> {state}</span>'
-        )
-    return (
-        '<section class="presence"><h3>Message field presence</h3>'
-        f'<div class="presence-list">{"".join(fields)}</div></section>'
-    )
 
 
 def _render_step_warnings(step: TraceStep) -> str:
@@ -322,19 +282,16 @@ def _tool_result(execution: TraceToolExecution) -> dict[str, Any]:
     return result if isinstance(result, dict) else {}
 
 
-def _response_without_reasoning(
-    response: LocatedTraceEvent | None,
-) -> dict[str, Any] | None:
+def _response(response: LocatedTraceEvent | None) -> dict[str, Any] | None:
     located = _located(response)
-    if located is None or response is None or response.name != "assistant":
+    if located is None:
         return located
-    data = dict(response.data)
-    message = data.get("message")
-    if isinstance(message, dict):
-        data["message"] = {
-            key: value for key, value in message.items() if key != "reasoning_content"
-        }
-    return {"jsonl_line": response.line_number, "event": response.name, "data": data}
+    located["data"] = {
+        key: value
+        for key, value in located["data"].items()
+        if key != "message_field_presence"
+    }
+    return located
 
 
 def _located(event: LocatedTraceEvent | None) -> dict[str, Any] | None:
@@ -356,10 +313,6 @@ def _details(title: str, value: Any, *, open_by_default: bool) -> str:
         f'<details class="trace-section"{open_attribute}>'
         f"<summary>{_escape(title)}</summary><pre>{_escape(rendered)}</pre></details>"
     )
-
-
-def _json(value: Any) -> str:
-    return _escape(_json_text(value))
 
 
 def _json_text(value: Any) -> str:
@@ -451,6 +404,17 @@ def _duration(milliseconds: int | float) -> str:
     return f"{seconds:.1f} s" if seconds < 10 else f"{seconds:g} s"
 
 
+def _task_title(task: Any) -> str:
+    if not isinstance(task, str):
+        return "Untitled run"
+    title = next((line.strip() for line in task.splitlines() if line.strip()), "")
+    if not title:
+        return "Untitled run"
+    if len(title) <= _TITLE_CHARS:
+        return title
+    return title[: _TITLE_CHARS - 1].rstrip() + "…"
+
+
 def _escape(value: Any) -> str:
     return html.escape(str(value), quote=True)
 
@@ -508,15 +472,13 @@ fieldset { margin:0 0 14px; padding:0; border:0; }
 .step-header { display:flex; align-items:flex-start; justify-content:space-between; gap:14px;
   padding-bottom:12px; border-bottom:1px solid var(--border); }
 .badges { display:flex; flex-wrap:wrap; gap:5px; justify-content:flex-end; }
-.badge,.presence-item { padding:3px 7px; background:var(--accent-soft); border-radius:999px;
+.badge { padding:3px 7px; background:var(--accent-soft); border-radius:999px;
   color:var(--text); font-size:12px; }
 .trace-section { margin-top:12px; border-top:1px solid var(--border); padding-top:10px; }
 .trace-section summary { cursor:pointer; font-weight:600; }
 pre { max-height:520px; overflow:auto; margin:9px 0 0; padding:12px; background:var(--code);
   border-radius:6px; color:var(--text); white-space:pre-wrap; overflow-wrap:anywhere;
   font:12px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
-.presence { margin-top:12px; padding-top:10px; border-top:1px solid var(--border); }
-.presence-list { display:flex; flex-wrap:wrap; gap:6px; }
 .empty { color:var(--muted); text-align:center; padding:18px 4px; }
 [hidden] { display:none !important; }
 @media (max-width:900px) { main { padding:16px; } .run-header { display:block; }
@@ -530,7 +492,7 @@ pre { max-height:520px; overflow:auto; margin:9px 0 0; padding:12px; background:
 <body><main>__CONTENT__</main>
 <script>
 (() => {
-  const search = document.getElementById("trace-search");
+  const queryInput = document.getElementById("step-filter");
   const filters = [...document.querySelectorAll("#filters input")];
   const buttons = [...document.querySelectorAll(".step-link")];
   const panels = new Map(
@@ -553,7 +515,7 @@ pre { max-height:520px; overflow:auto; margin:9px 0 0; padding:12px; background:
   }
 
   function applyFilters() {
-    const query = search.value.trim().toLocaleLowerCase();
+    const query = queryInput.value.trim().toLocaleLowerCase();
     const active = filters.filter(item => item.checked).map(item => item.value);
     const visible = [];
     buttons.forEach(button => {
@@ -576,7 +538,7 @@ pre { max-height:520px; overflow:auto; margin:9px 0 0; padding:12px; background:
   }
 
   buttons.forEach(button => button.addEventListener("click", () => select(button)));
-  search.addEventListener("input", applyFilters);
+  queryInput.addEventListener("input", applyFilters);
   filters.forEach(filter => filter.addEventListener("change", applyFilters));
   applyFilters();
 })();

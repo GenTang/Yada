@@ -119,11 +119,10 @@ uv run yada-trace TRACE.jsonl --html
 This writes `TRACE.html` beside the JSONL and opens it in the default browser.
 Pass an explicit path after `--html` to export without opening it. The single
 HTML file works offline and groups requests, reasoning, responses,
-plans, tool calls/results, failures, and the final diff by step. Search and
-filters run locally in the browser. Large prompts, patches, and command output
+plans, tool calls/results, failures, and the final diff by step. Step filtering
+runs locally in the browser. Large prompts, patches, and command output
 are collapsed by default. The viewer preserves redaction from the JSONL and
-cannot recover omitted or redacted fields; newer traces also show whether each
-assistant message field was present or explicitly normalized from omission.
+cannot recover omitted or redacted fields.
 
 Then inspect exact records using the line references:
 

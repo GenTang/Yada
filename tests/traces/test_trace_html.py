@@ -22,7 +22,7 @@ def test_completed_trace_renders_offline_semantic_view(
         "run_start",
         {
             "model": "deepseek-v4-pro",
-            "task": "Fix parser",
+            "task": "Fix parser\n\nA long issue description that stays collapsed.",
             "trace_level": "debug",
             "model_config": {"thinking": True},
             "provenance": {"yada_version": "0.1.0", "case_id": "parser-1"},
@@ -44,12 +44,6 @@ def test_completed_trace_renders_offline_semantic_view(
             "duration_ms": 1250,
             "usage": {"total_tokens": 42},
             "finish_reason": "tool_calls",
-            "message_field_presence": {
-                "role": True,
-                "content": False,
-                "reasoning_content": True,
-                "tool_calls": True,
-            },
             "message": {
                 "role": "assistant",
                 "content": "",
@@ -103,11 +97,15 @@ def test_completed_trace_renders_offline_semantic_view(
 
     assert "Wrote offline trace viewer" in capsys.readouterr().out
     assert "Yada trace viewer · offline" in document
-    assert "Fix parser" in document
+    assert "<h1>Fix parser</h1>" in document
+    assert "<summary>Task</summary>" in document
+    assert "A long issue description that stays collapsed." in document
     assert "Resolved · 1 step" in document
     assert "The boundary is off by one." in document
-    assert "message_field_presence" in document
-    assert "<code>content</code> omitted" in document
+    assert "<summary>Reasoning</summary>" not in document
+    assert '"reasoning_content"' not in document
+    assert "&quot;reasoning_content&quot;" in document
+    assert "message_field_presence" not in document
     assert "Final diff" in document
     assert "-wrong\n+right" in document
     assert 'data-flags="file-change"' in document
@@ -119,6 +117,7 @@ def test_completed_trace_renders_offline_semantic_view(
     assert "default-src 'none'" in document
     assert opened == []
     assert 'id="search-status"' in document
+    assert '<label for="step-filter">Filter steps</label>' in document
     assert "const searchableText = new Map(" in document
     assert "panel.textContent.toLocaleLowerCase()" in document
     assert "applyFilters();" in document
@@ -175,14 +174,18 @@ def test_interrupted_trace_marks_missing_pairs_and_run_end(tmp_path: Path) -> No
     assert 'data-flags="incomplete"' in document
 
 
-def test_legacy_trace_renders_without_field_presence(tmp_path: Path) -> None:
+def test_legacy_trace_ignores_obsolete_field_presence(tmp_path: Path) -> None:
     path = tmp_path / "legacy.jsonl"
     records = [
         {"schema_version": 1, "event": "run_start", "data": {"model": "old"}},
         {
             "schema_version": 1,
             "event": "assistant",
-            "data": {"step": 1, "message": {"content": "done"}},
+            "data": {
+                "step": 1,
+                "message_field_presence": {"content": True},
+                "message": {"content": "done"},
+            },
         },
     ]
     path.write_text(
@@ -193,7 +196,7 @@ def test_legacy_trace_renders_without_field_presence(tmp_path: Path) -> None:
     document = render_trace_html(path)
 
     assert "run legacy" in document
-    assert "Unavailable for this legacy trace" in document
+    assert "message_field_presence" not in document
     assert "done" in document
 
 
