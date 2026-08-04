@@ -126,7 +126,7 @@ def apply_patch(
     return {
         "revision": context.state.revision,
         "changed_files": changed,
-        "message": "patch applied; run a relevant test before finish",
+        "message": "patch applied; run a relevant test before finish_task",
     }
 
 

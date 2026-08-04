@@ -165,7 +165,7 @@ def replace_text(
             recovery="Read the current files and retry from the latest workspace state.",
         ) from exc
 
-    result["message"] = "text replaced; run a relevant test before finish"
+    result["message"] = "text replaced; run a relevant test before finish_task"
     return result
 
 

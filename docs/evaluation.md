@@ -55,7 +55,7 @@ recorded in the result JSON instead of losing the whole run. Argument errors and
 a missing API key happen before the runner starts and therefore do not create a
 result.
 
-The grader owns the final verdict. The agent's `finish` call and summary do not
+The grader owns the final verdict. The agent's `finish_task` call and summary do not
 make an evaluation `resolved`.
 
 ## Why Yada keeps both selectors
@@ -174,7 +174,7 @@ During the run:
 - the selected editing strategy and model-facing tool schemas stay fixed;
 - edits are SHA-bound and applied through checked patch transactions;
 - `run_command` uses the configured approval policy;
-- `finish` requires a successful test or build after the latest edit; and
+- `finish_task` requires a successful test or build after the latest edit; and
 - events are appended to `yada-trace.jsonl`.
 
 After the agent stops, Yada collects all tracked and untracked Git changes into
@@ -182,10 +182,10 @@ one patch relative to `HEAD`.
 
 For the native adapter, `agent_run.details` also records the selected
 `editing_strategy` and trace-derived `editing_metrics`, including first-edit
-success, eventual mutation success, edit retries, per-tool attempts, structured
-error counts, rejected editing calls, and post-edit verification status. Use
-the same task, model, parameters, and budgets when comparing `patch-only` with
-`replace-first`.
+success, eventual mutation success, additional and failed edit attempts, per-tool
+attempts, structured error counts, rejected editing calls, and post-edit
+verification status. Use the same task, model, parameters, and budgets when
+comparing `patch-only` with `replace-first`.
 
 ### 4. Run the case grader
 

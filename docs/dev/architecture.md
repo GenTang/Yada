@@ -70,7 +70,7 @@ stable system prompt + tool schemas
                 ↓
  append assistant + tool observations
                 ↓
-       repeat or verified finish
+       repeat or verified finish_task
 ```
 
 `Agent` in `agents/default.py` owns the append-only message list, step limit,
@@ -85,7 +85,7 @@ requests satisfy DeepSeek's thinking/tool-call contract.
 
 The current `Planner` is deterministic; it is not another model call. It builds
 the initial prompt, interprets assistant output, recovers from text-only turns,
-and rejects unsafe batches such as `finish` mixed with another tool or more than
+and rejects unsafe batches such as `finish_task` mixed with another tool or more than
 one editing operation in one turn. It has no workspace access.
 
 The `Executor` parses tool arguments, preserves model-provided call order,
@@ -104,7 +104,7 @@ Yada exposes six tools:
 | `replace_text` | Apply exact unique replacements to existing UTF-8 files. |
 | `apply_patch` | Validate and apply a Git-style unified diff. |
 | `run_command` | Run an approved argv array and return bounded structured output. |
-| `finish` | End only after verification of the latest revision. |
+| `finish_task` | End only after verification of the latest revision. |
 
 `ToolRunner` composes shared workspace, approval, output-limit, and verification
 state. At run start it freezes either the `patch-only` interface or the
@@ -149,7 +149,7 @@ secret-looking environment variables and return stdout, stderr, exit code,
 timeout, and duration through the same tool result.
 
 The model labels a command as `inspect`, `test`, or `build`. Only a successful
-`test` or `build` verifies the current workspace revision. `finish` rejects the
+`test` or `build` verifies the current workspace revision. `finish_task` rejects the
 run when:
 
 - no verification succeeded;
@@ -232,7 +232,7 @@ load, workspace, grading, cache, and artifact sequence.
 5. File mutation occurs only through a checked unified diff.
 6. Existing patch targets must match their last-read SHA-256.
 7. Every patch invalidates previous verification.
-8. `finish` requires verification of the latest revision.
+8. `finish_task` requires verification of the latest revision.
 9. Trace events are append-only and self-correlating.
 10. Benchmark grading happens outside the agent's tool boundary.
 11. Hidden grading inputs never enter the official Agent command container.

@@ -191,11 +191,13 @@ def _editing_metrics(trace_path: Path, tools: ToolRunner) -> dict[str, object]:
 
     state = tools.context.state
     first_success = None if not attempts else attempts[0].get("ok") is True
+    failed_attempts = sum(result.get("ok") is False for result in attempts)
     return {
         "first_edit_attempt_success": first_success,
         "eventual_mutation_success": state.patch_count > 0,
         "edit_attempts": len(attempts),
-        "edit_retries": max(0, len(attempts) - 1),
+        "additional_edit_attempts": max(0, len(attempts) - 1),
+        "failed_edit_attempts": failed_attempts,
         "tool_attempts": tool_attempts,
         "rejected_editing_calls": rejected,
         "error_codes": error_codes,

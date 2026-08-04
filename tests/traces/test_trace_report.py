@@ -30,7 +30,7 @@ def test_trace_events_have_correlation_metadata_and_redaction(tmp_path: Path) ->
             "task": "fix",
             "workspace": ".",
             "editing_strategy": "patch-only",
-            "tool_names": ["read_file", "apply_patch", "finish"],
+            "tool_names": ["read_file", "apply_patch", "finish_task"],
             "trace_level": "summary",
         },
     )
@@ -418,18 +418,18 @@ def test_protocol_violation_and_failed_tool_keep_line_references(
             {
                 "step": 2,
                 "action": "execute_tools",
-                "rejection_error": "duplicate finish calls",
+                "rejection_error": "duplicate finish_task calls",
             },
         ),
         _record(
             4,
             "protocol_violation",
-            {"step": 2, "error": "duplicate finish calls"},
+            {"step": 2, "error": "duplicate finish_task calls"},
         ),
         _record(
             5,
             "tool_call",
-            {"step": 2, "tool_call_id": "bad", "tool": "finish"},
+            {"step": 2, "tool_call_id": "bad", "tool": "finish_task"},
         ),
         _record(
             6,
@@ -437,9 +437,9 @@ def test_protocol_violation_and_failed_tool_keep_line_references(
             {
                 "step": 2,
                 "tool_call_id": "bad",
-                "tool": "finish",
+                "tool": "finish_task",
                 "duration_ms": 0,
-                "result": {"ok": False, "error": "duplicate finish calls"},
+                "result": {"ok": False, "error": "duplicate finish_task calls"},
             },
         ),
         _record(
@@ -456,9 +456,9 @@ def test_protocol_violation_and_failed_tool_keep_line_references(
     report = render_trace_report(path)
 
     assert "Plan: execute_tools  [L3]" in report
-    assert "Protocol violation: duplicate finish calls  [L4]" in report
+    assert "Protocol violation: duplicate finish_task calls  [L4]" in report
     assert "Protocol reminder: use the required tool protocol  [L7]" in report
-    assert "[error] finish  0ms  [call L5 → result L6]" in report
+    assert "[error] finish_task  0ms  [call L5 → result L6]" in report
 
 
 def test_step_verbose_events_and_flat_event_mode_use_physical_lines(

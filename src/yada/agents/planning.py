@@ -91,7 +91,7 @@ class Planner:
 
         Returns:
             A :class:`StepPlan` containing either executable calls or a recovery
-            reminder. A mixed ``finish`` batch is preserved for traceability but
+            reminder. A mixed ``finish_task`` batch is preserved for traceability but
             marked with ``rejection_error`` so the executor cannot run it.
         """
 
@@ -99,9 +99,9 @@ class Planner:
         if not tool_calls:
             text_turns = consecutive_text_turns + 1
             reminder = (
-                "Continue working with tools. You must call finish after a patch and a "
-                "successful test/build; a text-only response does not complete the "
-                "task."
+                "Continue working with tools. You must call the finish_task tool after "
+                "a patch and a successful test/build; a text-only response does not "
+                "complete the task."
             )
             if text_turns >= 3:
                 reminder += (
@@ -125,12 +125,14 @@ class Planner:
             )
             rejection_error_code = "multiple_edit_operations"
         elif len(tool_calls) > 1 and any(
-            _tool_name(call) == "finish" for call in tool_calls
+            _tool_name(call) == "finish_task" for call in tool_calls
         ):
-            # A concurrent finish could report success while sibling calls are still
+            # Concurrent completion could report success while sibling calls are still
             # mutating or verifying the repository, so reject the entire batch.
-            rejection_error = "finish must be the only tool call in its assistant turn"
-            rejection_error_code = "finish_must_be_alone"
+            rejection_error = (
+                "finish_task must be the only tool call in its assistant turn"
+            )
+            rejection_error_code = "finish_task_must_be_alone"
         return StepPlan(
             tool_calls=tool_calls,
             consecutive_text_turns=0,

@@ -25,7 +25,7 @@ class AgentResult:
     """Final outcome returned by :meth:`Agent.run`.
 
     Attributes:
-        finished: Whether the verification-gated ``finish`` tool succeeded.
+        finished: Whether the verification-gated ``finish_task`` tool succeeded.
         steps: Number of model turns consumed.
         summary: Model-provided summary or the step-limit explanation.
         usage: Flattened token and provider usage counters.
@@ -234,10 +234,20 @@ class Agent:
                     self.trace.write("run_end", _result_record(result))
                     return result
 
+        state = self.tools.context.state
+        if state.patch_count > 0 and state.verified_revision == state.revision:
+            step_limit_summary = (
+                "Step limit reached after verification succeeded but before "
+                "finish_task was called."
+            )
+        else:
+            step_limit_summary = (
+                "Step limit reached before the verification gate was satisfied."
+            )
         result = AgentResult(
             finished=False,
             steps=self.max_steps,
-            summary="Step limit reached before the verification gate was satisfied.",
+            summary=step_limit_summary,
             usage=total_usage,
             final_state=self.tools.final_state(),
         )

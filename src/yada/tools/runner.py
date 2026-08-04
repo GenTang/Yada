@@ -19,7 +19,7 @@ from yada.environments import (
 from yada.exceptions import ToolError
 from yada.tools.base import ToolContext, ToolExecution
 from yada.tools.command import run_command
-from yada.tools.finish import final_state, finish
+from yada.tools.finish import final_state, finish_task
 from yada.tools.patch import apply_patch
 from yada.tools.read import read_file
 from yada.tools.replace import replace_text
@@ -101,8 +101,8 @@ class ToolRunner:
         """
 
         try:
-            if name == "finish":
-                return finish(self.context, **arguments)
+            if name == "finish_task":
+                return finish_task(self.context, **arguments)
             handler = self._handlers.get(name)
             if handler is None:
                 raise ToolError(f"unknown tool: {name}")

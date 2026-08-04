@@ -39,7 +39,7 @@ uv run --frozen pytest tests/ -v
 ```
 
 The suite includes a fully offline fake-model path through read → patch → test →
-finish. Prefer fake clients and temporary Git repositories for agent-loop tests;
+finish_task. Prefer fake clients and temporary Git repositories for agent-loop tests;
 unit tests must not require a DeepSeek key or network access.
 
 ## Capture a useful trace
@@ -245,7 +245,7 @@ SWE-bench score. Use the official Docker grader for published results; see the
 
 - **`DEEPSEEK_API_KEY is not set`**: export the key in the shell launching Yada.
 - **No request payload in a trace**: rerun with `--trace-level debug`.
-- **`finish` rejected**: run a successful `test` or `build` after the latest patch.
+- **`finish_task` rejected**: run a successful `test` or `build` after the latest patch.
 - **Tool reports `ok` but tests failed**: inspect the command `exit_code`.
 - **No `run_end`**: the process was interrupted or raised outside a graceful path.
 - **Step limit reached**: inspect repeated reminders, failed tools, context growth,

@@ -113,7 +113,7 @@ def run_command(
     stderr_text, stderr_truncated = truncate_text(stderr, context.max_output_chars)
 
     # Verification is tied to the current revision. A later patch increments the
-    # revision and invalidates this success, so finish cannot use stale test output.
+    # revision and invalidates this success, so finish_task cannot use stale output.
     if purpose in {"test", "build"} and exit_code == 0 and not timed_out:
         context.state.verified_revision = context.state.revision
         context.state.successful_verifications.append(

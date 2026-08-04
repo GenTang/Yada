@@ -50,7 +50,7 @@ def test_replace_text_is_public_and_updates_edit_state(
     assert tool_runner.context.state.patch_count == 1
     assert tool_runner.context.state.touched_files == {"app.py"}
     assert tool_runner.context.state.verified_revision == -1
-    assert not tool_runner.execute("finish", {"summary": "done"}).data["ok"]
+    assert not tool_runner.execute("finish_task", {"summary": "done"}).data["ok"]
 
 
 def test_no_match_is_structured_and_does_not_change_state(

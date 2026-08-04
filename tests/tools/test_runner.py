@@ -69,6 +69,9 @@ def test_editing_strategy_freezes_public_tool_interface(
 
     assert default_runner.editing_strategy.value == "replace-first"
     assert "replace_text" in default_runner.tool_names
+    assert "finish_task" in default_runner.tool_names
+    assert "finish" not in default_runner.tool_names
+    assert not default_runner.execute("finish", {"summary": "done"}).data["ok"]
     assert patch_only.editing_strategy.value == "patch-only"
     assert "apply_patch" in patch_only.tool_names
     assert "replace_text" not in patch_only.tool_names
@@ -352,7 +355,7 @@ def test_finish_requires_verification_after_latest_patch(
         },
     )
 
-    premature = tool_runner.execute("finish", {"summary": "done"})
+    premature = tool_runner.execute("finish_task", {"summary": "done"})
     assert not premature.data["ok"]
 
     checked = tool_runner.execute(
@@ -365,7 +368,7 @@ def test_finish_requires_verification_after_latest_patch(
     assert checked.data["ok"]
     assert checked.data["exit_code"] == 0
 
-    finished = tool_runner.execute("finish", {"summary": "fixed answer"})
+    finished = tool_runner.execute("finish_task", {"summary": "fixed answer"})
     assert finished.finished
     assert finished.data["ok"]
 

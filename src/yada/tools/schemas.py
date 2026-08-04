@@ -9,7 +9,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "search_code",
-            "description": "Search text or regex in workspace files. Use this to locate symbols before reading.",
+            "description": "Search text or regex in workspace files when the target location is unclear.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -118,7 +118,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "run_command",
-            "description": "Run an argv array in the workspace without a shell. Label it inspect, test, or build. Commands require policy approval unless Yada runs with --yes.",
+            "description": "Run an argv array without a shell for inspection, testing, or builds; do not modify workspace files. Prefer direct test/build commands; wrappers must propagate child exit status. Commands require policy approval unless Yada runs with --yes.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -138,7 +138,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
-            "name": "finish",
+            "name": "finish_task",
             "description": "Submit the completed task. Rejected unless a patch exists and a relevant test/build passed after the latest patch.",
             "parameters": {
                 "type": "object",

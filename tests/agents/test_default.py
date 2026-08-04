@@ -99,7 +99,7 @@ def test_offline_end_to_end_loop(tmp_path: Path) -> None:
                     "purpose": "test",
                 },
             ),
-            tool_call("call-finish", "finish", {"summary": "fixed add"}),
+            tool_call("call-finish-task", "finish_task", {"summary": "fixed add"}),
         ]
     )
     trace_path = tmp_path / ".yada" / "test.jsonl"
@@ -122,6 +122,62 @@ def test_offline_end_to_end_loop(tmp_path: Path) -> None:
     assert "reasoning for read_file" not in trace
     # DeepSeek requires the prior assistant reasoning_content on the next request.
     assert client.seen_messages[1][-2]["reasoning_content"] == "reasoning for read_file"
+
+
+def test_step_limit_reports_verified_revision_without_finish(tmp_path: Path) -> None:
+    path = tmp_path / "value.py"
+    path.write_text("VALUE = 1\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "add", "value.py"], cwd=tmp_path, check=True)
+    runner = ToolRunner(tmp_path, approver=CommandApprover("allow"))
+    digest = runner.workspace.sha256(path)
+    client = FakeClient(
+        [
+            tool_call(
+                "replace",
+                "replace_text",
+                {
+                    "edits": [
+                        {
+                            "path": "value.py",
+                            "sha256": digest,
+                            "old_text": "VALUE = 1",
+                            "new_text": "VALUE = 2",
+                        }
+                    ]
+                },
+            ),
+            tool_call(
+                "test",
+                "run_command",
+                {
+                    "argv": [
+                        "python3",
+                        "-c",
+                        "import value; assert value.VALUE == 2",
+                    ],
+                    "purpose": "test",
+                },
+            ),
+        ]
+    )
+    trace_path = tmp_path / ".yada" / "verified-step-limit.jsonl"
+
+    result = Agent(
+        client=client,
+        tools=runner,
+        trace=TraceWriter(trace_path),
+        max_steps=2,
+        emit=lambda _: None,
+    ).run("Change VALUE")
+
+    assert not result.finished
+    assert result.summary == (
+        "Step limit reached after verification succeeded but before finish_task was called."
+    )
+    run_end = read_trace(trace_path)[-1]
+    assert run_end["event"] == "run_end"
+    assert run_end["data"]["summary"] == result.summary
 
 
 def test_debug_trace_reconstructs_exact_client_payload(tmp_path: Path) -> None:
@@ -156,6 +212,9 @@ def test_debug_trace_reconstructs_exact_client_payload(tmp_path: Path) -> None:
     result = agent.run("Inspect VALUE")
 
     assert not result.finished
+    assert result.summary == (
+        "Step limit reached before the verification gate was satisfied."
+    )
     events = read_trace(trace_path)
     assert reconstruct_model_request(events, 1) == client.seen_payloads[0]
     assert reconstruct_model_request(events, 2) == client.seen_payloads[1]
@@ -172,13 +231,13 @@ def test_debug_trace_reconstructs_exact_client_payload(tmp_path: Path) -> None:
     assert client.seen_payloads[0]["tools"] == client.seen_payloads[1]["tools"]
 
 
-def test_planner_rejects_finish_mixed_with_other_calls() -> None:
+def test_planner_rejects_finish_task_mixed_with_other_calls() -> None:
     planner = Planner()
     assistant_message = {
         "role": "assistant",
         "tool_calls": [
             {"function": {"name": "run_command", "arguments": "{}"}},
-            {"function": {"name": "finish", "arguments": "{}"}},
+            {"function": {"name": "finish_task", "arguments": "{}"}},
         ],
     }
 
@@ -187,9 +246,9 @@ def test_planner_rejects_finish_mixed_with_other_calls() -> None:
     assert len(plan.tool_calls) == 2
     assert plan.consecutive_text_turns == 0
     assert plan.rejection_error == (
-        "finish must be the only tool call in its assistant turn"
+        "finish_task must be the only tool call in its assistant turn"
     )
-    assert plan.rejection_error_code == "finish_must_be_alone"
+    assert plan.rejection_error_code == "finish_task_must_be_alone"
 
 
 def test_strategy_prompts_are_explicit_and_stable() -> None:
@@ -199,14 +258,24 @@ def test_strategy_prompts_are_explicit_and_stable() -> None:
     patch_prompt = patch_planner.initial_messages("Fix it")[0]["content"]
     replace_prompt = replace_planner.initial_messages("Fix it")[0]["content"]
 
+    assert "Use search when the target location is unclear" in replace_prompt
+    assert "Never modify workspace files" in replace_prompt
+    assert "Submit at most one editing" in patch_prompt
+    assert "Submit at most one editing" in replace_prompt
+    assert "inspect the directly relevant callers" in replace_prompt
+    assert "wrapper must propagate its child process exit code" in replace_prompt
+    assert "finish_task next." in replace_prompt
+    assert "Do not perform final re-reads" in replace_prompt
+    assert "Tool strategy:" not in patch_prompt
+    assert "Tool strategy:" not in replace_prompt
     assert "Editing strategy: patch-only" in patch_prompt
     assert "Use apply_patch for every workspace edit" in patch_prompt
-    assert "After a patch failure, follow its structured error" in patch_prompt
+    assert "follow the structured recovery instruction" in patch_prompt
     assert "Editing strategy: replace-first" in replace_prompt
-    assert "Prefer replace_text for a localized edit" in replace_prompt
-    assert "Once the target and exact replacement are clear" in replace_prompt
+    assert "prefer replace_text with an exact" in replace_prompt
+    assert "Once the target and intended edit are clear" in replace_prompt
     assert "Do not repeat" in replace_prompt
-    assert "After an edit failure, use its structured error" in replace_prompt
+    assert "Retry or switch tools" in replace_prompt
     assert replace_prompt == replace_planner.initial_messages("Fix it")[0]["content"]
 
 

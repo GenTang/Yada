@@ -144,7 +144,8 @@ def test_editing_metrics_capture_retry_and_success(tmp_path: Path) -> None:
     assert metrics["first_edit_attempt_success"] is False
     assert metrics["eventual_mutation_success"] is True
     assert metrics["edit_attempts"] == 2
-    assert metrics["edit_retries"] == 1
+    assert metrics["additional_edit_attempts"] == 1
+    assert metrics["failed_edit_attempts"] == 1
     assert metrics["tool_attempts"] == {"apply_patch": 0, "replace_text": 2}
     assert metrics["error_codes"] == {"no_match": 1}
     assert metrics["verification_success_after_mutation"] is False

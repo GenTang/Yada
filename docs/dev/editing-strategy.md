@@ -41,7 +41,7 @@ The model is responsible for:
 - observing structured errors;
 - re-reading when the recovery policy requires current content;
 - proposing a corrected replacement or patch in a later turn;
-- verifying the final revision before finish.
+- verifying the final revision before calling finish_task.
 
 ### 1.3 Yada host
 
@@ -87,7 +87,7 @@ The run_start trace records:
     "apply_patch",
     "replace_text",
     "run_command",
-    "finish"
+    "finish_task"
   ]
 }
 ~~~
@@ -140,11 +140,10 @@ The detailed recovery matrix is the design and test reference:
 
 invalid_patch comes from Issue #8, on which Issue #10 depends.
 
-The system prompt summarizes this table as a small number of principles: use the
-structured error, re-read when the target may be stale or unclear, retry or fall
-back only in a later turn, correct invalid arguments, and preserve apply_failed
-diagnostics. Keeping the full table here avoids paying for and repeatedly presenting
-the same verbose matrix on every model turn.
+The system prompt tells the model to follow the structured recovery instruction
+returned with the actual error, refresh stale content when required, and retry or
+switch tools only in a later turn. Keeping the full table here avoids paying for and
+repeatedly presenting the same verbose matrix on every model turn.
 
 The host does not enforce a multi-stage recovery protocol. If the model ignores
 the prompt, the resulting call is handled by the ordinary tool contract and
@@ -211,7 +210,7 @@ for each model turn up to max_steps
         the next model turn observes its structured error
         the model follows the prompt recovery matrix
 
-    if verified finish succeeds
+    if verified finish_task succeeds
         end successfully
 
 end unfinished when max_steps is exhausted
@@ -294,7 +293,7 @@ Native evaluation results also record the strategy and editing metrics:
 
 - first edit-attempt success;
 - eventual mutation success;
-- edit attempts and retries;
+- edit attempts, additional attempts, and failed attempts;
 - replace and patch attempt counts;
 - rejected editing calls;
 - error-code counts;
