@@ -98,7 +98,9 @@ def test_completed_trace_renders_offline_semantic_view(
     assert "Wrote offline trace viewer" in capsys.readouterr().out
     assert "Yada trace viewer · offline" in document
     assert "<h1>Fix parser</h1>" in document
-    assert "<summary>Task</summary>" in document
+    assert (
+        '<details class="trace-section task-detail"><summary>Task</summary>' in document
+    )
     assert "A long issue description that stays collapsed." in document
     assert "Resolved · 1 step" in document
     assert "The boundary is off by one." in document
@@ -119,7 +121,13 @@ def test_completed_trace_renders_offline_semantic_view(
     assert 'id="search-status"' in document
     assert '<label for="step-filter">Filter steps</label>' in document
     assert "const searchableText = new Map(" in document
-    assert "panel.textContent.toLocaleLowerCase()" in document
+    assert 'panel.querySelectorAll("[data-searchable]")' in document
+    assert '.join(" ")' in document
+    assert '<details class="trace-section"><summary>Request</summary>' in document
+    assert (
+        '<details class="trace-section" data-searchable open>'
+        "<summary>Response</summary>" in document
+    )
     assert "applyFilters();" in document
 
 
@@ -228,7 +236,9 @@ def test_large_tool_output_is_collapsed_by_default(tmp_path: Path) -> None:
 
     document = render_trace_html(path)
 
-    marker = '<details class="trace-section"><summary>Tool Results</summary>'
+    marker = (
+        '<details class="trace-section" data-searchable><summary>Tool Results</summary>'
+    )
     assert marker in document
     assert "x" * 6_000 in document
 

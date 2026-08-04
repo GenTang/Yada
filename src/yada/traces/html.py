@@ -45,7 +45,7 @@ def render_trace_html(path: Path) -> str:
         + '<aside class="sidebar">'
         + '<label for="step-filter">Filter steps</label>'
         + '<input id="step-filter" type="search" '
-        + 'placeholder="Prompt, response, tool, file, error…">'
+        + 'placeholder="Response, tool, file, error…">'
         + '<p id="search-status" class="search-status" aria-live="polite"></p>'
         + _render_filters()
         + f'<nav id="step-list" aria-label="Agent steps">{navigation}</nav>'
@@ -111,6 +111,7 @@ def _render_run_details(run: TraceRun) -> str:
         "Task",
         start.get("task", "Unavailable"),
         open_by_default=False,
+        class_name="task-detail",
     )
     details += _details(
         "Model configuration",
@@ -196,17 +197,17 @@ def _render_step(step: TraceStep, *, selected: bool) -> str:
     results = [_located(execution.result) for execution in step.tool_executions]
     return f"""
 <article class="step-panel" id="step-{step.number}" data-flags="{flag_text}"{hidden}>
-  <header class="step-header">
+  <header class="step-header" data-searchable>
     <div><p class="eyebrow">Lines {step.first_line}–{step.last_line}</p>
     <h2>Step {step.number}</h2></div>
     <div class="badges">{badges}</div>
   </header>
   {warnings}
   {_details("Request", request or "Missing model request", open_by_default=False)}
-  {_details("Response", response or "Missing model response", open_by_default=True)}
-  {_details("Plan", plan or "No plan decision recorded", open_by_default=True)}
-  {_details("Tool Calls", calls or "No tool calls", open_by_default=True)}
-  {_details("Tool Results", results or "No tool results", open_by_default=True)}
+  {_details("Response", response or "Missing model response", open_by_default=True, searchable=True)}
+  {_details("Plan", plan or "No plan decision recorded", open_by_default=True, searchable=True)}
+  {_details("Tool Calls", calls or "No tool calls", open_by_default=True, searchable=True)}
+  {_details("Tool Results", results or "No tool results", open_by_default=True, searchable=True)}
 </article>
 """
 
@@ -225,7 +226,7 @@ def _render_step_warnings(step: TraceStep) -> str:
     if not warnings:
         return ""
     unique = " · ".join(dict.fromkeys(warnings))
-    return f'<p class="notice error">{_escape(unique)}</p>'
+    return f'<p class="notice error" data-searchable>{_escape(unique)}</p>'
 
 
 def _step_flags(step: TraceStep) -> tuple[str, ...]:
@@ -304,13 +305,22 @@ def _located(event: LocatedTraceEvent | None) -> dict[str, Any] | None:
     }
 
 
-def _details(title: str, value: Any, *, open_by_default: bool) -> str:
+def _details(
+    title: str,
+    value: Any,
+    *,
+    open_by_default: bool,
+    searchable: bool = False,
+    class_name: str = "",
+) -> str:
     rendered = _json_text(value)
     open_attribute = (
         " open" if open_by_default and len(rendered) <= _COLLAPSE_CHARS else ""
     )
+    search_attribute = " data-searchable" if searchable else ""
+    classes = f"trace-section {class_name}".rstrip()
     return (
-        f'<details class="trace-section"{open_attribute}>'
+        f'<details class="{classes}"{search_attribute}{open_attribute}>'
         f"<summary>{_escape(title)}</summary><pre>{_escape(rendered)}</pre></details>"
     )
 
@@ -453,6 +463,7 @@ h2 { margin:0; font-size:20px; } h3 { margin-bottom:8px; font-size:14px; }
 .notice.error { border-color:var(--error); }
 .run-details { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px;
   margin:18px 0; }
+.task-detail { grid-column:1/-1; }
 .workspace { display:grid; grid-template-columns:280px minmax(0,1fr); gap:18px;
   align-items:start; }
 .sidebar,.step-panel { background:var(--panel); border:1px solid var(--border);
@@ -499,7 +510,13 @@ pre { max-height:520px; overflow:auto; margin:9px 0 0; padding:12px; background:
     [...document.querySelectorAll(".step-panel")].map(panel => [panel.id.slice(5), panel])
   );
   const searchableText = new Map(
-    [...panels].map(([step, panel]) => [step, panel.textContent.toLocaleLowerCase()])
+    [...panels].map(([step, panel]) => [
+      step,
+      [...panel.querySelectorAll("[data-searchable]")]
+        .map(node => node.textContent)
+        .join(" ")
+        .toLocaleLowerCase(),
+    ])
   );
   const searchStatus = document.getElementById("search-status");
   const noResults = document.getElementById("no-results");
