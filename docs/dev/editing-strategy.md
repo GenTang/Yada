@@ -1,333 +1,131 @@
-# Editing Strategy and Recovery Algorithm
+# Editing Strategies and Recovery Policy
 
 ## Status
 
-This document specifies the implementation algorithm for
+This document is the implementation contract for
 [Issue #10: replace-first routing with apply_patch fallback](https://github.com/GenTang/Yada/issues/10).
-It consolidates the routing, recovery, safety, bounded-retry, tracing, testing,
-and evaluation rules needed to implement the issue.
+It describes the behavior that must remain stable across prompts, tools, traces,
+tests, and evaluations. It intentionally does not prescribe Python classes or
+duplicate the Agent loop as near-executable pseudocode.
 
-The key architectural decision is:
+The central rule is:
 
-> The model decides how to express an edit. Yada deterministically controls
-> which editing operations are currently allowed, supplies safe recovery
-> context, bounds retries, and terminates explicitly when progress cannot be
-> made.
-
-This is a hybrid design:
-
-- the Agent retains flexibility for semantic decisions;
-- Yada enforces safety and control-flow invariants in ordinary code;
-- a rejected `replace_text` call is never silently converted into an
-  `apply_patch` call;
-- every run finishes or fails in a finite number of steps.
+> The model chooses how to express an edit. Yada exposes a stable strategy,
+> executes edits through existing fail-closed tools, and ensures that a failed
+> edit is observed by the model before another edit can run.
 
 ## 1. Scope
 
 ### 1.1 Goals
 
-The implementation must:
+Issue #10 adds:
 
-1. Support the run-level strategies `patch-only` and `replace-first`.
-2. Keep the selected strategy, prompt, and tool schemas stable for the complete
-   run.
-3. Prefer `replace_text` for localized changes to existing text when an exact,
-   unique anchor is available.
-4. Use `apply_patch` for file creation, deletion, unsuitable structural edits,
-   and other operations that `replace_text` does not support.
-5. Return a failed edit to the Agent before another edit is attempted.
-6. Prevent stale or ambiguous replacement failures from causing blind fallback.
-7. Preserve SHA binding, transactionality, touched-file accounting, revision
-   tracking, and post-edit verification.
-8. Prevent infinite retry loops in both strategies.
-9. Make routing and recovery paths reconstructable from traces.
-10. Support deterministic tests with mocked model/tool interactions.
-11. Add no runtime dependency.
+1. Explicit run-level patch-only and replace-first strategies.
+2. A stable tool interface and strategy prompt for the complete run.
+3. A documented rule for choosing replace_text or apply_patch.
+4. A later-turn recovery policy for structured edit failures.
+5. A small execution barrier that prevents same-turn fallback.
+6. Trace fields and evaluation metrics for comparing both strategies.
+7. Deterministic tests using mocked model and tool interactions.
+
+The existing SHA checks, transactional application, revision accounting, and
+verification gate remain unchanged.
 
 ### 1.2 Non-goals
 
-This design does not add:
+Issue #10 does not add:
 
-- same-call automatic fallback;
 - fuzzy or whitespace-normalized matching;
-- automatic selection between ambiguous locations;
-- AST-based edit routing;
-- an external fast-apply model;
-- a new public orchestration tool;
-- a guarantee that the model can always generate a correct patch;
-- removal of the `patch-only` compatibility baseline.
+- automatic selection between ambiguous matches;
+- AST-based routing;
+- an external edit model;
+- a public orchestration tool;
+- framework-generated patches;
+- automatic conversion of a failed replacement into a patch;
+- a guarantee that the model will eventually produce a valid edit.
 
-## 2. Terminology
+## 2. Terms
 
 ### Agent turn
 
-One model response and the tool calls proposed by that response.
+One assistant response and the tool calls proposed by that response.
 
 ### Editing operation
 
-A tool call that changes workspace files. In this issue, the editing operations
-are:
-
-- `replace_text`;
-- `apply_patch`.
-
-Earlier discussions sometimes call these operations *mutations*. This document
-uses *editing operation* unless referring to the metric name from Issue #10.
-
-### Read-only recovery
-
-A bounded `read_file` operation performed to refresh the source content and
-SHA after an edit failure. Read-only recovery does not change workspace files
-and is not a fallback edit.
+A replace_text or apply_patch call. Earlier discussions use mutation for the
+same concept: an operation that changes workspace files.
 
 ### Fallback
 
-A later Agent turn deliberately choosing `apply_patch` after observing a
-failed `replace_text` result and any required recovery context.
+An apply_patch call deliberately proposed by the model in a later Agent turn
+after it has observed a failed replace_text result and any required fresh read.
 
-### Recovery episode
+Fallback is not an internal call from replace_text to apply_patch. The
+replace_text implementation may continue to reuse the validated patch boundary
+to commit an already validated replacement transaction; that is an
+implementation detail, not strategy fallback.
 
-The interval beginning with one failed editing operation and ending when:
+### Recovery
 
-- a later edit succeeds;
-- the controller reaches a terminal failure;
-- the run exhausts a recovery or protocol budget.
-
-### Progress
-
-An event that materially advances the run. The exact definition is given in
-[Section 10](#10-bounded-retries-and-loop-prevention).
+The model observes a structured edit error, gathers required current context,
+and proposes a corrected edit in a later turn.
 
 ## 3. Required invariants
 
-The implementation must preserve the following invariants.
+The implementation must preserve these invariants:
 
-1. **Stable strategy:** `editing_strategy` cannot change after run start.
-2. **Stable interface:** the prompt and tool schemas cannot change during the
-   run.
-3. **Single edit per turn:** at most one editing operation may execute from one
-   Agent turn.
-4. **Observed failure:** a failed edit must be present in the next model request
-   before a later edit may execute.
-5. **Fresh context:** errors that require re-reading must have a post-failure
-   read snapshot visible to the model before the next accepted edit.
-6. **No hidden edit:** automatic recovery may read files but may never generate
-   or execute `replace_text` or `apply_patch`.
-7. **No blind fallback:** `stale_hash` and `ambiguous_match` may not directly
-   trigger an automatic patch.
-8. **No side effects on failure:** a failed edit must not advance the workspace
-   revision, touched-file set, patch count, or verified revision.
-9. **Verification invalidation:** a successful edit invalidates previous
+1. **Stable strategy:** editing_strategy is selected at run start and cannot
+   change during the run.
+2. **Stable interface:** the prompt and exposed tool schemas do not change
+   during the run.
+3. **Model-owned routing:** Yada does not use a second model, AST router, or
+   hidden conversion to choose an editing representation.
+4. **One edit per turn:** at most one editing operation may execute from one
+   assistant response.
+5. **Observed failure:** a failed edit result is included in a later model
+   request before another edit may execute.
+6. **Read visibility:** a read and an edit generated in the same assistant
+   response cannot use that read as recovery evidence. The model had not seen
+   the read result when it generated the edit.
+7. **No hidden fallback:** a failed replace_text never causes Yada to generate
+   or execute apply_patch.
+8. **Fail closed:** a failed edit does not change files, revision, touched-file
+   accounting, or verification state.
+9. **Verification after success:** every successful edit invalidates previous
    verification.
-10. **Transactional fallback:** a successful fallback uses the same SHA,
-    validation, transaction, and verification boundary as any other patch.
-11. **Finite execution:** every retry path consumes a finite budget or reaches a
-    terminal state.
-12. **Trace completeness:** the strategy, tool choice, result, error code,
-    recovery reads, state transitions, rejections, retries, and terminal reason
-    must be traceable.
+10. **Bounded run:** max_steps is the final termination boundary. A small
+    per-revision edit-failure limit may end an unproductive recovery earlier.
 
-## 4. Responsibilities
+These are control-flow and safety properties. They do not guarantee that the
+model follows the preferred routing policy or completes the task.
 
-### 4.1 Model responsibilities
+## 4. Run-level strategies
 
-The model is responsible for:
+### 4.1 Initialization
 
-- understanding the requested code change;
-- deciding whether a localized exact replacement is suitable;
-- constructing `old_text` and `new_text`;
-- constructing a unified diff when using `apply_patch`;
-- revising its plan after observing structured errors and refreshed content;
-- running relevant verification before `finish`.
+The CLI and evaluation adapter accept:
 
-### 4.2 Yada responsibilities
-
-Yada is responsible for:
-
-- selecting and freezing the run strategy;
-- exposing the appropriate stable tool interface;
-- enforcing one editing operation per Agent turn;
-- authorizing or rejecting proposed editing operations according to recovery
-  state;
-- performing deterministic read-only recovery when possible;
-- rejecting unchanged retries;
-- bounding patch, replace, protocol, and no-progress loops;
-- preserving SHA and transactional guarantees;
-- ending the run explicitly when recovery is exhausted;
-- recording the complete control path in traces.
-
-### 4.3 Guarantee boundary
-
-Yada can guarantee:
-
-- that a disallowed edit does not execute;
-- that a required re-read occurs before a later accepted edit;
-- that `PATCH_REQUIRED` accepts no further `replace_text` edit;
-- that retries are finite;
-- that failure is explicit and auditable.
-
-Yada cannot guarantee:
-
-- that the model will call `apply_patch` when requested;
-- that generated patch arguments are syntactically valid;
-- that a valid patch solves the user task;
-- that every run completes successfully.
-
-When the model cannot produce an allowed, valid edit within the budgets, the run
-must end as `unfinished`; Yada must not manufacture a permissive edit behind the
-Agent's back.
-
-## 5. State model
-
-The editing controller should be implemented as a small state machine whose
-transition logic can be tested as a pure function.
-
-```python
-from dataclasses import dataclass, field
-from enum import Enum
-
-
-class EditingStrategy(str, Enum):
-    PATCH_ONLY = "patch-only"
-    REPLACE_FIRST = "replace-first"
-
-
-class RecoveryPhase(str, Enum):
-    NORMAL = "normal"
-    NEED_READ = "need-read"
-    NEED_MODEL_READ = "need-model-read"
-    READY_TO_REPLAN = "ready-to-replan"
-    REPLACE_RETRY_ALLOWED = "replace-retry-allowed"
-    PATCH_RETRY_ALLOWED = "patch-retry-allowed"
-    PATCH_REQUIRED = "patch-required"
-    TERMINAL_FAILURE = "terminal-failure"
-
-
-@dataclass(frozen=True)
-class ReadSnapshot:
-    path: str
-    sha256: str
-    start_line: int
-    end_line: int
-    available_to_model_at_step: int
-
-
-@dataclass
-class PendingRecovery:
-    failed_step: int
-    failed_tool_call_id: str
-    failed_tool: str
-    error_code: str
-    paths: tuple[str, ...]
-    arguments_fingerprint: str
-    phase: RecoveryPhase
-    corrected_retry_count: int = 0
-
-
-@dataclass
-class EditingRunState:
-    strategy: EditingStrategy
-    frozen_tool_names: tuple[str, ...]
-    tool_schema_fingerprint: str
-    prompt_fingerprint: str
-    pending_recovery: PendingRecovery | None = None
-    last_reads: dict[str, ReadSnapshot] = field(default_factory=dict)
-    failure_counts: dict[tuple[int, str, str], int] = field(default_factory=dict)
-    protocol_violation_count: int = 0
-    no_progress_turns: int = 0
-    edit_failures_this_revision: int = 0
-    workspace_revision: int = 0
-```
-
-The recommended interface is:
-
-```python
-transition(state, event) -> tuple[new_state, actions]
-```
-
-Representative events include:
-
-- `RunStarted`;
-- `ModelTurnStarted`;
-- `ToolCallProposed`;
-- `ReadCompleted`;
-- `EditSucceeded`;
-- `EditFailed`;
-- `ToolCallRejected`;
-- `VerificationSucceeded`;
-- `BudgetExhausted`.
-
-Representative actions include:
-
-- `ExecuteTool`;
-- `PerformRecoveryRead`;
-- `RejectToolCall`;
-- `AppendObservation`;
-- `WriteTraceEvent`;
-- `EndRun`.
-
-## 6. Run initialization
-
-### 6.1 Strategy selection
-
-The CLI and evaluation adapter must accept:
-
-```text
+~~~text
 --editing-strategy patch-only
 --editing-strategy replace-first
-```
+~~~
 
-`patch-only` remains the default until benchmark evidence justifies changing
-it.
+patch-only remains the default until benchmark evidence supports changing it.
 
-### 6.2 Stable tool exposure
+The strategy-specific tool collection is built once at run initialization:
 
-For `patch-only`, expose:
+| Strategy | Exposed editing tools |
+| --- | --- |
+| patch-only | apply_patch |
+| replace-first | replace_text and apply_patch |
 
-```text
-search_code
-read_file
-apply_patch
-run_command
-finish
-```
+Both strategies also expose search_code, read_file, run_command, and finish.
+Recovery state must not add, remove, reorder, or redefine tools later in the
+run.
 
-For `replace-first`, expose:
+The run-start trace records at least:
 
-```text
-search_code
-read_file
-replace_text
-apply_patch
-run_command
-finish
-```
-
-The tool collection must be created once during initialization. Recovery state
-must not dynamically remove, reorder, or redefine tools. For example,
-`PATCH_REQUIRED` leaves the schemas unchanged but deterministically rejects a
-later `replace_text` call.
-
-### 6.3 Stable prompt
-
-The strategy-specific system prompt is also created once.
-
-`patch-only` instructions state that all workspace edits use `apply_patch`.
-
-`replace-first` instructions state:
-
-- use `replace_text` for an existing regular text file when the change is local
-  and `old_text` is exact and unique;
-- use `apply_patch` directly for creation, deletion, rename, large structural
-  rewrite, impractically large anchors, or unsupported targets;
-- follow the structured recovery matrix;
-- never treat a failed replacement as permission for same-turn fallback.
-
-### 6.4 Run-start trace
-
-The `run_start` event must contain at least:
-
-```json
+~~~json
 {
   "editing_strategy": "replace-first",
   "tool_names": [
@@ -338,927 +136,445 @@ The `run_start` event must contain at least:
     "run_command",
     "finish"
   ],
-  "tool_schema_fingerprint": "...",
-  "prompt_fingerprint": "..."
+  "max_edit_failures_per_revision": 4
 }
-```
+~~~
 
-The fingerprints make strategy comparisons auditable and detect accidental
-mid-run drift.
+Prompt and schema fingerprints are not required for the first implementation.
+The frozen strategy and tool names, combined with the existing model request
+trace, are sufficient to audit the comparison.
 
-## 7. Routing algorithm
+### 4.2 Routing policy
 
-### 7.1 `patch-only`
+For patch-only, every workspace edit is expressed as apply_patch.
 
-`replace_text` is not exposed. If an edit occurs, the model must express it as
-`apply_patch`.
+For replace-first, use this selection matrix:
 
-This guarantees which public editing tool is available, but it does not
-guarantee that the model can generate a valid patch. Patch recovery and bounded
-failure are therefore required; see [Section 11](#11-patch-only-control-flow).
+| Edit intent | Preferred tool | Reason |
+| --- | --- | --- |
+| Localized change to an existing regular UTF-8 file with an exact unique anchor | replace_text | Avoid model-generated diff hunk metadata |
+| Create a file | apply_patch | replace_text supports existing files only |
+| Delete a file | apply_patch | replace_text cannot delete files |
+| Rename a file | apply_patch when the patch tool supports the operation; otherwise report unsupported | Do not simulate a rename with text replacement |
+| Large structural rewrite | apply_patch | An exact replacement would reproduce too much source |
+| Exact anchor would be impractically large | apply_patch | Keep replacement requests bounded |
+| Target is unsupported by replace_text but valid for apply_patch | apply_patch | Use the tool whose contract covers the operation |
+| Exact uniqueness is unknown | read_file first | Do not guess between locations |
 
-### 7.2 `replace-first`
+Localized, large, and impractically large are model judgments guided by the
+prompt. The tools remain the deterministic safety boundary: they validate
+paths, hashes, exact matches, patch syntax, context, and transactionality.
 
-The model applies the following decision rule:
+Issue #10 lists renames as an apply_patch case, while the current patch contract
+from Issue #8 rejects rename metadata. Strategy routing may select the patch
+path, but Issue #10 must not silently expand the patch tool contract; until
+rename support is added separately, the operation fails as unsupported.
 
-```python
-def preferred_editing_tool(intent):
-    if intent.creates_file:
-        return "apply_patch"
-    if intent.deletes_or_renames_file:
-        return "apply_patch"
-    if intent.is_large_structural_rewrite:
-        return "apply_patch"
-    if intent.requires_impractically_large_anchor:
-        return "apply_patch"
-    if intent.target_is_unsupported_by_replace:
-        return "apply_patch"
+### 4.3 Prompt contract
 
-    if (
-        intent.targets_existing_regular_text
-        and intent.is_localized
-        and intent.has_exact_unique_anchor
-    ):
-        return "replace_text"
+The patch-only prompt instructs the model to:
 
-    return "apply_patch"
-```
+- read current files before editing;
+- use apply_patch for all workspace edits;
+- regenerate a patch from fresh content after a structured failure.
 
-The semantic predicates such as `is_localized` are model judgments guided by
-the prompt. The tools remain the deterministic backstop:
+The replace-first prompt instructs the model to:
 
-- `replace_text` validates file type, UTF-8, SHA, exact match count, limits, and
-  transactionality;
-- `apply_patch` validates declared targets, SHA, paths, patch syntax, context,
-  and transactionality.
+- prefer replace_text only for localized exact unique replacement;
+- use apply_patch directly for creation, deletion, structural edits, or
+  unsupported replacement targets;
+- observe the recovery matrix in Section 6;
+- never propose a same-turn fallback after replace_text;
+- re-read when an error says current source context is required.
 
-The framework must not add a second model or AST router merely to classify the
-edit; those approaches are outside Issue #10.
+Prompt guidance influences routing but is not treated as a safety guarantee.
 
-## 8. Agent-turn execution algorithm
+## 5. Agent-turn control algorithm
 
-### 8.1 Batch validation
+The existing model → planner → executor → observation loop remains in place.
+Issue #10 adds only the strategy selection and edit isolation described below.
 
-Define:
+### 5.1 Batch preflight
 
-```python
-EDITING_TOOLS = {"replace_text", "apply_patch"}
-```
+Before tool execution, count replace_text and apply_patch calls in the assistant
+response.
 
-Before executing a model response:
+If more than one editing operation is present:
 
-```python
-editing_calls = [
-    call for call in tool_calls
-    if call.name in EDITING_TOOLS
-]
+- reject the complete tool-call batch using the existing Planner/Executor
+  rejection path;
+- return a structured multiple_edit_operations result for every call;
+- leave workspace and verification state unchanged;
+- let the next model turn choose one operation after observing the rejection.
 
-if len(editing_calls) > 1:
-    reject_editing_batch(
-        error_code="multiple_edit_operations",
-        error="Only one editing operation is allowed per Agent turn.",
-    )
-```
+This prevents a response such as:
 
-The rejected editing calls produce no side effects. This prevents the sequence
-below from executing in one turn:
+~~~text
+replace_text
+apply_patch
+~~~
 
-```text
-replace_text -> failure -> apply_patch
-```
+from acting as a precomputed fallback. The patch was generated before the model
+knew whether the replacement had failed.
 
-because the model could not have observed the replacement failure before it
-generated the patch call.
+### 5.2 Failure observation barrier
 
-### 8.2 Recovery authorization
+When the single editing operation fails:
 
-Before an editing call executes, the controller checks:
+1. Preserve its error_code, human-readable error, and bounded details.
+2. Rely on the one-edit-per-turn preflight to ensure that no later editing
+   operation exists in that assistant response.
+3. Append the assistant message and one result for every tool call.
+4. Send those observations in the next model request.
+5. Permit a later edit only after the error-specific read requirement has been
+   satisfied.
 
-1. Is this editing tool allowed by the current recovery phase?
-2. Has every required post-failure read become visible to the model?
-3. Are the arguments different from an already rejected attempt?
-4. Is the relevant retry budget still available?
-5. Is the run already in a terminal state?
+Every model tool call must still receive a result. A rejected batch must not
+leave the provider conversation with an unmatched tool_call.
 
-If any condition fails, the call is rejected with a structured observation and
-no edit is executed.
-
-### 8.3 Read visibility
-
-A model-generated read and edit in the same turn cannot satisfy a recovery
-precondition: the model generated the edit before seeing the read result.
-
-For that reason, a read snapshot records:
-
-```text
-available_to_model_at_step
-```
-
-An edit in step `N` may use a recovery snapshot only if:
-
-```python
-snapshot.available_to_model_at_step <= N
-```
-
-An automatic recovery read performed between steps `N - 1` and `N` is visible
-in step `N`. A `read_file` proposed by the model in step `N` becomes visible no
-earlier than step `N + 1`.
-
-## 9. Edit results and recovery
-
-### 9.1 Success
-
-On success:
-
-```python
-state.workspace_revision += 1
-state.pending_recovery = None
-state.edit_failures_this_revision = 0
-state.no_progress_turns = 0
-context.state.verified_revision = -1
-context.state.touched_files.update(changed_paths)
-```
-
-The result includes the new revision, changed paths, and post-edit hashes. A
-relevant test or build must succeed at the new revision before `finish`.
-
-### 9.2 General failure procedure
-
-For an editing failure:
-
-1. Preserve the original structured error and bounded details.
-2. Do not advance workspace or verification state.
-3. Increment the per-revision edit failure counter.
-4. Create a `PendingRecovery` object.
-5. Determine whether read-only recovery is required.
-6. Perform bounded automatic reads when a reliable range is available.
-7. Attach the recovery context to the observation for the next model turn.
-8. Transition to the error-specific recovery phase.
-9. Never execute another edit from the same Agent turn.
-
-Conceptually:
-
-```text
-edit failure
-  -> structured result
-  -> PendingRecovery
-  -> optional automatic read-only recovery
-  -> failure + recovery context in next model request
-  -> later model decision
-```
-
-### 9.3 Automatic read-only recovery
-
-Automatic reads strengthen the prompt-only recovery policy without violating
-Issue #10: they do not edit the workspace, and fallback still happens only in a
-later Agent turn after the model observes the failure.
-
-The controller should retain the range of every successful `read_file` call.
-
-Recommended recovery ranges:
-
-- `stale_hash`: re-read the last ranges used for each affected path and obtain
-  the current SHA;
-- `no_match`: re-read the last ranges from which the proposed anchor was
-  derived;
-- `ambiguous_match`: read bounded windows around the returned match line
-  numbers;
-- `patch_context_mismatch`: read bounded windows derived from the failed patch
-  hunks.
-
-If no reliable bounded range is available, set `NEED_MODEL_READ`. In this phase,
-editing calls are rejected until a model-requested `read_file` result has become
-visible in a later turn. Reading an arbitrary part of a large file must not be
-treated as sufficient merely to satisfy the state machine.
-
-An observation may contain:
-
-```json
-{
-  "ok": false,
-  "error_code": "no_match",
-  "error": "old_text was not found in src/app.py",
-  "details": {
-    "paths": ["src/app.py"]
-  },
-  "recovery_context": {
-    "action": "reread",
-    "reads": [
-      {
-        "path": "src/app.py",
-        "sha256": "current-sha256",
-        "start_line": 70,
-        "end_line": 130,
-        "content": "..."
-      }
-    ]
-  }
-}
-```
-
-### 9.4 Error transition matrix
-
-The matrix covers errors from Issue #10 and `invalid_patch` from its dependency,
-Issue #8.
-
-| Error code | Deterministic Yada action | Next accepted editing behavior | Exhaustion behavior |
-|---|---|---|---|
-| `stale_hash` | Re-read affected ranges and return current SHA | Re-plan from fresh content; do not automatically patch | Repeated staleness becomes `concurrent_modification` |
-| `no_match` | Re-read the source range used for the anchor | Retry with a new exact anchor or deliberately generate a patch | A second corrected `no_match` enters `PATCH_REQUIRED` |
-| `ambiguous_match` | Read windows around all reported matches | Retry `replace_text` with a larger unique anchor | Persistent ambiguity becomes `unresolved_ambiguity`; no blind patch |
-| `invalid_edit` | Return validation details; no automatic read | Correct arguments and retry | Repeated unchanged/invalid arguments exhaust the protocol budget |
-| `invalid_patch` | Return patch syntax diagnostics | Regenerate the patch once | Persistent invalidity becomes `patch_retry_exhausted` |
-| `unsupported_target` | Determine whether `apply_patch` supports the requested operation | Enter `PATCH_REQUIRED` only when patching is valid | Otherwise terminate as `unsupported_operation` |
-| `patch_context_mismatch` | Re-read affected hunk ranges | Regenerate `apply_patch` once | Persistent mismatch becomes `patch_retry_exhausted` |
-| `apply_failed` | Preserve complete bounded diagnostics | No automatic recovery | Immediate `terminal_edit_failure` |
-
-### 9.5 Unchanged retry detection
-
-Canonicalize and hash editing arguments. A failed attempt key should include:
-
-```python
-attempt_key = (
-    state.workspace_revision,
-    tool_name,
-    canonical_arguments_fingerprint,
-    tuple(sorted(affected_paths)),
-)
-```
-
-If the same attempt is proposed again at the same revision, reject it without
-re-running the editing tool:
-
-```json
-{
-  "ok": false,
-  "error_code": "unchanged_retry",
-  "details": {
-    "recovery": "Use the refreshed content to construct different arguments."
-  }
-}
-```
-
-## 10. Bounded retries and loop prevention
-
-Neither strategy inherently prevents loops. A model may repeatedly generate an
-invalid patch, repeatedly choose an unsuitable replacement, alternate between
-tools, alternate between error codes, or avoid editing entirely. Loop prevention
-must therefore be strategy-independent.
-
-### 10.1 Recommended initial budgets
-
-The exact values may be tuned by benchmark evidence, but they must be finite,
-recorded in `run_start`, and covered by tests.
-
-```python
-MAX_CORRECTED_REPLACE_RETRIES = 1
-MAX_REGENERATED_PATCH_RETRIES = 1
-MAX_STALE_REFRESHES = 2
-MAX_EDIT_FAILURES_PER_REVISION = 4
-MAX_RECOVERY_PROTOCOL_VIOLATIONS = 2
-MAX_NO_PROGRESS_TURNS = 3
-```
-
-The existing `max_steps` remains the global final bound.
-
-### 10.2 Why several budgets are required
-
-Per-error budgets alone are insufficient. A model could alternate:
-
-```text
-invalid_patch
--> patch_context_mismatch
--> stale_hash
--> invalid_patch
--> ...
-```
-
-The per-revision failure budget closes this loophole because every failed edit
-at the same workspace revision consumes the same global edit-failure budget,
-regardless of tool or error code.
-
-The protocol budget covers calls that are rejected before execution, such as:
-
-- proposing more than one editing operation in one turn;
-- retrying identical failed arguments;
-- proposing `replace_text` in `PATCH_REQUIRED`;
-- attempting to bypass ambiguity recovery;
-- proposing an edit before the required read is visible.
-
-The no-progress budget covers turns in which the model:
-
-- emits text without an actionable tool call;
-- repeatedly reads the same range at the same SHA;
-- performs unrelated searches;
-- proposes only rejected editing operations;
-- changes error types without advancing the recovery phase.
-
-### 10.3 What counts as progress
-
-The no-progress counter resets only for a meaningful event:
-
-1. a successful edit increments the workspace revision;
-2. a required read returns a new SHA;
-3. a read completes a pending recovery requirement;
-4. the recovery phase advances monotonically, for example
-   `NEED_READ -> READY_TO_REPLAN -> PATCH_REQUIRED`;
-5. a relevant test or build succeeds for the latest revision.
-
-The following do not count as progress:
-
-- submitting a different malformed patch;
-- changing from one edit error code to another at the same revision;
-- repeating the same read range and SHA;
-- a rejected call;
-- an irrelevant inspection command;
-- a text-only claim of completion.
-
-### 10.4 Termination function
-
-```python
-def terminal_reason(state, *, max_steps):
-    if state.pending_recovery is not None:
-        if state.pending_recovery.phase == RecoveryPhase.TERMINAL_FAILURE:
-            return state.pending_recovery.error_code
-
-    if state.edit_failures_this_revision >= MAX_EDIT_FAILURES_PER_REVISION:
-        return "edit_failure_budget_exhausted"
-
-    if state.protocol_violation_count >= MAX_RECOVERY_PROTOCOL_VIOLATIONS:
-        return "recovery_protocol_exhausted"
-
-    if state.no_progress_turns >= MAX_NO_PROGRESS_TURNS:
-        return "no_progress"
-
-    if current_step >= max_steps:
-        return "max_steps_exhausted"
-
-    return None
-```
-
-### 10.5 Finite-termination argument
-
-Consider the finite budget vector:
-
-```text
-(
-  remaining steps,
-  remaining edit failures for the current revision,
-  remaining recovery retries,
-  remaining protocol violations,
-  remaining no-progress turns
-)
-```
-
-Every Agent turn either:
-
-- makes genuine progress;
-- decreases at least one finite budget;
-- reaches a terminal state.
-
-The global remaining-step count decreases on every model turn. Therefore a run
-cannot execute indefinitely: it eventually finishes successfully or ends with
-an explicit `unfinished` reason.
-
-## 11. `patch-only` control flow
-
-`patch-only` does not have an alternate public editing tool, so repeated patch
-failure must be bounded directly.
-
-### 11.1 Correctable patch failures
-
-- `invalid_patch`: return bounded parser diagnostics and allow one regenerated
-  patch;
-- `stale_hash`: refresh the relevant source and allow a patch using the current
-  SHA;
-- `patch_context_mismatch`: refresh hunk ranges and allow one regenerated patch.
-
-### 11.2 Non-correctable or exhausted failures
-
-- unsupported paths or target types terminate explicitly;
-- `apply_failed` terminates immediately;
-- a second corrected syntax/context failure terminates with
-  `patch_retry_exhausted`;
-- identical patch arguments are rejected without executing `git apply`;
-- cross-error alternation is stopped by `MAX_EDIT_FAILURES_PER_REVISION`;
-- refusal to generate a patch is stopped by protocol, no-progress, or global
-  step budgets.
-
-The guarantee is not that patching always succeeds. The guarantee is:
-
-```text
-a patch succeeds, or patch-only ends explicitly within finite budgets
-```
-
-## 12. `replace-first` control flow
-
-### 12.1 Successful replacement
-
-A successful `replace_text` edit completes through the existing transactional
-patch boundary. The public `apply_patch` tool does not need to appear in every
-run; retaining both tools in the architecture does not require using both in
-each task.
-
-### 12.2 `no_match`
-
-```text
-replace_text -> no_match
--> automatic bounded re-read
--> next model turn sees failure and current source
--> one corrected replace or a deliberate patch
-```
-
-If the corrected replacement again returns `no_match`, transition to
-`PATCH_REQUIRED`. From that point, `replace_text` remains visible in the stable
-schema but is rejected by the controller.
-
-### 12.3 `ambiguous_match`
-
-```text
-replace_text -> ambiguous_match
--> read windows around reported matches
--> require a larger exact unique anchor
--> allow one corrected replacement
-```
-
-If the corrected replacement remains ambiguous, terminate as
-`unresolved_ambiguity`. Do not automatically require or execute a patch merely
-to escape the loop, because that could bypass the evidence that the edit target
-is not unique.
-
-### 12.4 `unsupported_target`
-
-If the requested operation is valid for `apply_patch`, enter `PATCH_REQUIRED`.
-If the target is prohibited for both tools, such as a protected or escaping
-path, terminate as `unsupported_operation`.
-
-### 12.5 Patch fallback failures
-
-After transitioning to `PATCH_REQUIRED`, all patch attempts are governed by the
-same recovery and retry budgets as `patch-only`. This prevents a replacement
-loop from merely turning into a patch loop.
-
-The guarantee is:
-
-```text
-replace succeeds,
-or a deliberate bounded patch succeeds,
-or replace-first ends explicitly within finite budgets
-```
-
-## 13. End-to-end pseudocode
-
-```python
-def run(task, strategy):
-    state = initialize_frozen_editing_state(strategy)
-    messages = build_initial_messages(task, strategy)
-    trace_run_start(state)
-
-    for step in range(1, max_steps + 1):
-        response = model.complete(
-            messages=messages,
-            tools=state.frozen_tool_schemas,
-        )
-        plan = planner.plan(response)
-        editing_calls = [
-            call
-            for call in plan.tool_calls
-            if call.name in {"replace_text", "apply_patch"}
-        ]
-
-        if len(editing_calls) > 1:
-            results = reject_multiple_edit_operations(plan.tool_calls)
-            state.protocol_violation_count += 1
-            state.no_progress_turns += 1
-            messages.extend(tool_results_to_messages(results))
-            if reason := terminal_reason(state, max_steps=max_steps):
-                return unfinished(reason)
-            continue
-
-        results = []
-        turn_made_progress = False
-
-        for call in plan.tool_calls:
-            if call.name not in {"replace_text", "apply_patch"}:
-                result = execute_non_editing_tool(call)
-                progress = record_observation_if_relevant(
-                    state,
-                    call,
-                    result,
-                    step,
-                )
-                turn_made_progress = turn_made_progress or progress
-                results.append(result)
-                continue
-
-            authorization = authorize_editing_call(state, call, step)
-            if not authorization.allowed:
-                state.protocol_violation_count += 1
-                results.append(authorization.rejection)
-                continue
-
-            if is_unchanged_retry(state, call):
-                state.protocol_violation_count += 1
-                results.append(unchanged_retry_observation(call))
-                continue
-
-            result = execute_editing_tool(call)
-            trace_tool_result(call, result)
-
-            if result.ok:
-                on_edit_success(state, call, result)
-                turn_made_progress = True
-                results.append(result)
-                continue
-
-            state.edit_failures_this_revision += 1
-            recovery = create_pending_recovery(step, call, result)
-            state.pending_recovery = recovery
-
-            recovery_reads = perform_safe_recovery_reads(
-                state=state,
-                recovery=recovery,
-                visible_to_model_at_step=step + 1,
-            )
-            phase_advanced = transition_after_failure(
-                state,
-                recovery,
-                recovery_reads,
-            )
-            turn_made_progress = turn_made_progress or phase_advanced
-            results.append(attach_recovery_context(result, recovery_reads))
-
-        state.no_progress_turns = (
-            0 if turn_made_progress else state.no_progress_turns + 1
-        )
-
-        messages.append(response.message)
-        messages.extend(tool_results_to_messages(results))
-        trace_recovery_state(state)
-
-        if reason := terminal_reason(state, max_steps=max_steps):
-            return unfinished(reason)
-
-        if a_finish_result_succeeded(results):
-            return finished(results)
-
-    return unfinished("max_steps_exhausted")
-```
-
-## 14. Overall flowchart
-
-```mermaid
+### 5.3 Recovery read visibility
+
+Some errors require a fresh read before the next edit. The minimal controller
+only needs to remember:
+
+- the failed step;
+- the error code;
+- affected paths;
+- whether a required read result has become visible to the model.
+
+No automatic read is required. The model requests read_file in the next turn,
+and Yada returns the normal bounded content and current SHA.
+
+If an error occurs in step N:
+
+- a read already visible before step N is not post-failure evidence;
+- a read proposed in step N + 1 becomes visible to the model in step N + 2;
+- an edit also proposed in step N + 1 was generated without seeing that read
+  and causes that complete batch to be rejected when fresh context is required;
+- an edit proposed in step N + 2 may use the read result.
+
+Consequently, recovery that requires fresh content uses a read-only Agent turn
+followed by an editing turn. This fits the existing whole-batch rejection path
+and avoids introducing per-call scheduling.
+
+This is the semantic purpose previously represented by
+available_to_model_at_step. It should be implemented with the smallest state
+that fits the existing Planner and Executor boundaries.
+
+### 5.4 Successful edit
+
+Successful replace_text and apply_patch calls continue to use the existing tool
+state:
+
+- increment workspace revision;
+- update touched files;
+- invalidate the verified revision;
+- require a relevant successful test or build before finish.
+
+A successful edit clears the pending recovery requirement and resets the
+per-revision edit-failure counter.
+
+## 6. Recovery matrix
+
+Recovery is model-driven and occurs in later Agent turns. Yada may enforce a
+required post-failure read, but it does not generate a replacement or patch.
+
+| Error code | Fresh read required before another edit? | Next model action | Exhaustion behavior |
+| --- | --- | --- | --- |
+| stale_hash | Yes | Read affected files and reconstruct the edit with current SHA and content. Do not fall back automatically. | Count the failed edit; the per-revision or max_steps boundary eventually ends repeated races. |
+| no_match | Yes | Read relevant content, then use current exact text or deliberately generate a new patch. | No forced second-attempt transition; further failures consume the shared edit-failure limit. |
+| ambiguous_match | Yes | Read a narrower range or enlarge the exact anchor until the target is unique. | No fixed one-retry limit. Continue only while shared budgets remain; ambiguity alone never authorizes a blind patch. |
+| invalid_edit | No | Correct the arguments in a later turn. | Repeated failures consume the shared edit-failure limit. |
+| unsupported_target | No, unless current source is needed to build a patch | Use apply_patch only if that operation is valid under its contract; otherwise report the unsupported operation. | No hidden conversion or mutation. |
+| invalid_patch | No for syntax-only errors; read if source context may be stale | Correct or regenerate the unified diff. | Repeated failures consume the shared edit-failure limit. |
+| patch_context_mismatch | Yes | Read affected files and regenerate the patch from current content. | Repeated failures consume the shared edit-failure limit. |
+| apply_failed | No automatic recovery | Preserve diagnostics and fail loudly; the model may inspect the cause, but Yada performs no fallback edit. | The shared boundaries end repeated attempts. |
+
+The invalid_patch row comes from Issue #8, on which Issue #10 depends.
+
+### 6.1 Clarification for ambiguous_match
+
+Issue #10 says to read a narrower range or enlarge the exact anchor until it is
+unique. It does not specify that only one corrected replacement is allowed.
+
+Therefore the first implementation must not:
+
+- force PATCH_REQUIRED after one ambiguous retry;
+- terminate as unresolved_ambiguity after one retry;
+- treat ambiguity itself as permission to patch an uncertain target.
+
+The model may make multiple evidence-based attempts, bounded by the shared
+per-revision failure limit and max_steps. A deliberate patch is acceptable only
+after fresh context makes the intended target unambiguous; it is never an
+automatic reaction to ambiguous_match.
+
+## 7. Loop prevention
+
+### 7.1 Two boundaries
+
+The first implementation uses only two loop boundaries:
+
+1. max_steps, which already decreases on every model turn and guarantees that
+   the run is finite;
+2. MAX_EDIT_FAILURES_PER_REVISION, initially 4, which ends repeated failed
+   editing attempts earlier at one unchanged workspace revision.
+
+The per-revision counter:
+
+- increments when replace_text or apply_patch actually executes and fails;
+- does not increment for read-only calls;
+- resets after a successful edit advances the revision;
+- ends the run as unfinished with edit_failure_budget_exhausted when it reaches
+  the configured limit.
+
+Rejected protocol calls can rely on max_steps in the first implementation.
+There is no separate protocol-violation budget, no no-progress budget, and no
+per-error retry budget.
+
+### 7.2 What these boundaries guarantee
+
+They guarantee finite execution, not successful completion:
+
+- patch-only may repeatedly generate invalid patches;
+- replace-first may repeatedly produce no_match or ambiguous_match;
+- the model may ignore a requested read;
+- the model may avoid editing entirely.
+
+Actual failed edits are stopped early by the per-revision limit. Other
+non-progress behavior is stopped by max_steps.
+
+Additional counters should be introduced only after traces or the Issue #10
+benchmark demonstrate a loop pattern that these two boundaries cannot diagnose
+or control adequately.
+
+No formal budget-vector proof is necessary: max_steps alone is already a
+strictly decreasing global bound.
+
+## 8. Control flows
+
+### 8.1 Overall flow
+
+~~~mermaid
 flowchart TD
-    A["Start run"] --> B{"Select editing strategy"}
-    B -- "patch-only" --> C["Freeze tools: apply_patch only"]
-    B -- "replace-first" --> D["Freeze tools: replace_text and apply_patch"]
-    C --> E["Freeze prompt, schemas, and fingerprints"]
+    A["Start run"] --> B{"Editing strategy"}
+    B -->|"patch-only"| C["Freeze prompt and tools: apply_patch"]
+    B -->|"replace-first"| D["Freeze prompt and tools: replace_text + apply_patch"]
+    C --> E["Request model turn"]
     D --> E
-    E --> F["Write run_start trace"]
-    F --> G["Request next model turn"]
 
-    G --> H["Planner parses tool calls"]
-    H --> I{"More than one editing operation?"}
-    I -- "Yes" --> J["Reject editing batch; consume protocol budget"]
-    J --> K{"Budget exhausted?"}
-    K -- "Yes" --> L["End unfinished with explicit reason"]
-    K -- "No" --> G
+    E --> F["Planner inspects proposed tool calls"]
+    F --> G{"More than one editing operation?"}
+    G -->|"Yes"| H["Reject complete batch with no side effects"]
+    H --> I["Return structured results in next model request"]
+    I --> N{"max_steps exhausted?"}
 
-    I -- "No" --> M{"Contains an editing operation?"}
-    M -- "No" --> N["Execute read, search, test, or finish"]
-    N --> O["Record observations and progress"]
-    O --> P{"Finished or budget exhausted?"}
-    P -- "Finished" --> Q["End finished"]
-    P -- "Exhausted" --> L
-    P -- "Continue" --> G
+    G -->|"No"| J{"Required read pending and edit proposed?"}
+    J -->|"Yes"| K["Reject complete batch and request read-only turn"]
+    K --> I
+    J -->|"No"| L["Execute tools in existing order"]
 
-    M -- "Yes" --> R{"Controller authorizes this edit?"}
-    R -- "No" --> S["Reject call; consume protocol/no-progress budget"]
-    S --> K
-    R -- "Yes" --> T["Execute replace_text or apply_patch"]
-    T --> U{"Edit succeeded?"}
+    L --> M{"Editing result"}
+    M -->|"Success"| O["Advance revision and require verification"]
+    O --> P["Continue normal Agent loop"]
+    P --> N
 
-    U -- "Yes" --> V["Advance revision and invalidate verification"]
-    V --> W["Require relevant test or build"]
-    W --> G
+    M -->|"Failure"| Q["Return structured error; increment revision failure count"]
+    Q --> R{"Failure limit reached?"}
+    R -->|"Yes"| S["End unfinished: edit_failure_budget_exhausted"]
+    R -->|"No"| T["Record any required post-failure read"]
+    T --> I
 
-    U -- "No" --> X["Preserve structured error and arguments fingerprint"]
-    X --> Y["Create PendingRecovery"]
-    Y --> Z{"Read-only recovery required?"}
-    Z -- "Yes" --> AA["Perform bounded recovery reads"]
-    Z -- "No" --> AB["Skip automatic read"]
-    AA --> AC["Attach failure and recovery context"]
-    AB --> AC
-    AC --> AD["Transition recovery phase and consume retry budget"]
-    AD --> AE{"Terminal recovery state?"}
-    AE -- "Yes" --> L
-    AE -- "No" --> G
-```
+    M -->|"No edit"| P
+    N -->|"No"| E
+    N -->|"Yes"| U["End unfinished: max_steps_exhausted"]
+~~~
 
-## 15. `patch-only` flowchart
+### 8.2 Replace-first routing and recovery
 
-```mermaid
+~~~mermaid
 flowchart TD
-    A["Model proposes apply_patch"] --> B{"Controller authorizes call?"}
-    B -- "No" --> C["Reject and consume protocol budget"]
-    C --> D{"Protocol/no-progress budget exhausted?"}
-    D -- "Yes" --> E["End unfinished"]
-    D -- "No" --> A
+    A["Model evaluates edit intent"] --> B{"Localized existing text with exact unique anchor?"}
+    B -->|"Yes"| C["Propose replace_text"]
+    B -->|"No"| D["Propose apply_patch"]
 
-    B -- "Yes" --> F["Execute apply_patch"]
-    F --> G{"Result"}
-    G -- "Success" --> H["Advance revision; require verification"]
-    G -- "invalid_patch" --> I{"Regenerated patch retry available?"}
-    I -- "Yes" --> J["Return syntax diagnostics to next model turn"]
-    J --> A
-    I -- "No" --> K["End: patch_retry_exhausted"]
+    C --> E{"replace_text result"}
+    E -->|"Success"| F["Verify latest revision"]
+    E -->|"stale_hash or no_match"| G["Next turn: read current relevant content"]
+    E -->|"ambiguous_match"| H["Next turn: read narrower range or match windows"]
+    E -->|"invalid_edit"| I["Next turn: correct arguments"]
+    E -->|"unsupported_target"| J["Next turn: choose apply_patch only if valid"]
+    E -->|"apply_failed"| K["Preserve diagnostics; no automatic fallback"]
 
-    G -- "stale_hash" --> L["Refresh source ranges and SHA"]
-    L --> M{"Stale refresh budget available?"}
-    M -- "Yes" --> A
-    M -- "No" --> N["End: concurrent_modification"]
+    G --> L["Following turn: corrected replace or deliberate patch"]
+    H --> M["Following turn: use a larger unique anchor"]
+    M --> E
+    I --> C
+    J --> D
+    L --> N{"Chosen tool"}
+    N -->|"replace_text"| C
+    N -->|"apply_patch"| D
 
-    G -- "patch_context_mismatch" --> O["Refresh affected hunk ranges"]
-    O --> P{"Regenerated patch retry available?"}
-    P -- "Yes" --> A
-    P -- "No" --> K
+    D --> O{"apply_patch result"}
+    O -->|"Success"| F
+    O -->|"stale_hash or patch_context_mismatch"| P["Next turn: read affected files"]
+    O -->|"invalid_patch"| Q["Next turn: correct or regenerate patch"]
+    O -->|"apply_failed"| K
+    P --> R["Following turn: regenerate patch"]
+    Q --> R
+    R --> D
 
-    G -- "unsupported_target" --> Q["End: unsupported_operation"]
-    G -- "apply_failed" --> R["End: terminal_edit_failure"]
-```
+    E -->|"Any repeated failure"| S["Consume shared per-revision failure limit"]
+    O -->|"Any repeated failure"| S
+    S --> T{"Limit or max_steps reached?"}
+    T -->|"No"| A
+    T -->|"Yes"| U["End unfinished with explicit reason"]
+~~~
 
-## 16. `replace-first` flowchart
+### 8.3 Patch-only behavior
 
-```mermaid
-flowchart TD
-    A["Model evaluates requested edit"] --> B{"Existing text, localized, exact unique anchor?"}
-    B -- "No" --> C["Propose apply_patch"]
-    B -- "Yes" --> D["Propose replace_text"]
+patch-only follows the same recovery matrix but never exposes replace_text:
 
-    D --> E{"replace_text result"}
-    E -- "Success" --> F["Advance revision; require verification"]
-    E -- "stale_hash" --> G["Refresh content and SHA"]
-    G --> H{"Stale refresh budget available?"}
-    H -- "Yes" --> A
-    H -- "No" --> I["End: concurrent_modification"]
+~~~text
+read current source
+    → propose apply_patch
+    → success: verify
+    → structured failure: observe it in the next model turn
+    → perform any required fresh read
+    → regenerate the patch in a later turn
+    → stop at the per-revision failure limit or max_steps
+~~~
 
-    E -- "no_match" --> J["Refresh source range"]
-    J --> K{"Corrected replace already attempted?"}
-    K -- "No" --> L["Next turn: corrected replace or deliberate patch"]
-    L --> A
-    K -- "Yes" --> M["Enter PATCH_REQUIRED"]
+There is no patch-specific retry counter. A valid patch may succeed on any
+attempt before the shared boundaries are reached.
 
-    E -- "ambiguous_match" --> N["Read windows around all matches"]
-    N --> O{"Expanded-anchor retry already attempted?"}
-    O -- "No" --> P["Require one larger exact unique anchor"]
-    P --> D
-    O -- "Yes" --> Q["End: unresolved_ambiguity"]
+## 9. Trace requirements
 
-    E -- "invalid_edit" --> R["Return validation details"]
-    R --> S{"Arguments changed and retry available?"}
-    S -- "Yes" --> D
-    S -- "No" --> T["Reject or end by protocol budget"]
+The existing tool_call and tool_result events already record:
 
-    E -- "unsupported_target" --> U{"Operation valid for apply_patch?"}
-    U -- "No" --> V["End: unsupported_operation"]
-    U -- "Yes" --> M
+- selected tool;
+- arguments;
+- success or failure;
+- structured error_code;
+- Agent step and tool-call correlation.
 
-    M --> W{"Next proposed editing operation"}
-    W -- "replace_text" --> X["Reject: patch_required"]
-    X --> Y{"Protocol budget exhausted?"}
-    Y -- "Yes" --> Z["End: recovery_protocol_exhausted"]
-    Y -- "No" --> W
-    W -- "apply_patch" --> C
+Issue #10 adds editing_strategy and the frozen tool names to run_start. It also
+needs a bounded trace record when Yada rejects an edit because:
 
-    C --> AA["Use patch-only recovery and retry rules"]
-    AA --> AB{"Patch succeeds?"}
-    AB -- "Yes" --> F
-    AB -- "No and budget exhausted" --> AC["End: patch_retry_exhausted"]
-```
+- multiple editing operations were proposed in one turn;
+- a required read was not yet visible to the model;
+- the per-revision failure limit was exhausted.
 
-## 17. Trace requirements
+The recovery path can then be reconstructed from existing ordered model, call,
+and result events. A large family of recovery_started, recovery_read, and
+recovery_transition events is not required unless implementation experience
+shows that existing traces are insufficient.
 
-In addition to existing model, tool-call, and tool-result events, the controller
-should record:
+An unfinished run records a stable terminal reason such as:
 
-### `recovery_started`
+- edit_failure_budget_exhausted;
+- max_steps_exhausted;
+- an existing fatal tool or runtime error.
 
-```json
-{
-  "step": 4,
-  "failed_tool_call_id": "call-replace-4",
-  "failed_tool": "replace_text",
-  "error_code": "no_match",
-  "paths": ["src/app.py"],
-  "phase": "need-read"
-}
-```
+## 10. Deterministic tests
 
-### `recovery_read`
+Mocked model and tool interactions should cover:
 
-```json
-{
-  "step": 4,
-  "triggered_by_tool_call_id": "call-replace-4",
-  "paths": ["src/app.py"],
-  "ranges": [{"start_line": 70, "end_line": 130}],
-  "visible_to_model_at_step": 5
-}
-```
+### Strategy stability
 
-### `recovery_transition`
+- patch-only exposes apply_patch but not replace_text;
+- replace-first exposes both editing tools;
+- strategy and schemas remain stable across all model requests;
+- run_start records strategy, tool names, and the edit-failure limit.
 
-```json
-{
-  "step": 4,
-  "from": "need-read",
-  "to": "ready-to-replan",
-  "error_code": "no_match",
-  "corrected_retry_count": 0
-}
-```
+### Routing
 
-### `editing_call_rejected`
+- a localized existing-file change is prompted toward replace_text;
+- creation, deletion, and structural edits are prompted toward apply_patch;
+- patch-only never exposes replace_text.
 
-```json
-{
-  "step": 6,
-  "tool": "replace_text",
-  "error_code": "patch_required",
-  "protocol_violation_count": 1
-}
-```
+### Turn isolation and visibility
 
-### `run_end`
+- a turn with replace_text and apply_patch executes neither edit;
+- a failed edit appears in the next model request;
+- every call in a rejected batch receives a tool result;
+- a read and edit generated in the same recovery turn cause the batch to be
+  rejected and cannot satisfy the fresh-read requirement;
+- an edit in the following turn can use the now-visible read.
 
-An unfinished run must include a stable reason and the final controller state:
+### Recovery
 
-```json
-{
-  "finished": false,
-  "status": "unfinished",
-  "reason": "patch_retry_exhausted",
-  "editing_strategy": "replace-first",
-  "steps": 7,
-  "workspace_revision": 0,
-  "edit_attempts": 3,
-  "last_error_code": "patch_context_mismatch"
-}
-```
+- stale_hash requires a fresh read before retry;
+- no_match permits a corrected replacement or deliberate patch after a read;
+- repeated ambiguous_match can continue with larger anchors while shared
+  budgets remain;
+- ambiguity never causes automatic patch fallback;
+- invalid_edit permits corrected arguments in a later turn;
+- unsupported_target permits patch only when the patch contract supports it;
+- invalid_patch permits a regenerated patch;
+- patch_context_mismatch requires a fresh read;
+- apply_failed preserves diagnostics and performs no hidden edit.
 
-Trace content must remain bounded and follow the existing summary/debug
-redaction rules. Full source content should not be added to summary traces merely
-because it was read for recovery.
+### Loop and safety boundaries
 
-## 18. Evaluation algorithm
+- four failed edits at one revision end with
+  edit_failure_budget_exhausted;
+- a successful edit resets the per-revision failure counter;
+- text-only, repeated-read, or rejected-call loops still end at max_steps;
+- failed and rejected edits leave files, revision, touched paths, and
+  verification unchanged;
+- successful fallback remains SHA-bound, transactional, and subject to
+  post-edit verification.
 
-Compare `patch-only` and `replace-first` as two policies over the same underlying
-editing implementations.
+## 11. Evaluation
 
-For every paired comparison, hold constant:
+Compare patch-only and replace-first using:
 
-- task set and base commits;
-- model and model parameters;
-- thinking/reasoning settings;
-- tool schemas and prompt fingerprints within each strategy;
-- step, token, command, and wall-time budgets;
-- grading logic;
-- retry and no-progress budgets.
+- the same task set and base commits;
+- the same model and model parameters;
+- the same step, token, command, and wall-time budgets;
+- stable prompts and tool schemas within each strategy;
+- repeated runs when model nondeterminism requires them.
 
-Repeat trials when model nondeterminism makes a single run unreliable.
-
-Derive at least these metrics from traces and grader results:
+Record at least:
 
 - first edit-attempt success rate;
-- eventual editing/mutation success rate;
-- completed/resolved task rate;
-- replace and patch retry counts;
-- recovery-protocol rejection counts;
+- eventual mutation success rate;
+- completed or resolved task rate;
+- edit retries;
 - Agent turns and total steps;
 - input and output tokens;
-- successful verification after the latest edit;
-- unrelated changed lines, using a benchmark reference or explicit allowed
-  ranges;
-- wrong-target and partial-target edits, which must remain zero;
-- terminal-reason distribution, including patch retry exhaustion, unresolved
-  ambiguity, concurrent modification, protocol exhaustion, no progress, and
-  max-step exhaustion.
+- verification success after mutation;
+- unrelated changed lines;
+- wrong-target or partial-target mutations, which must remain zero;
+- terminal reason distribution.
 
-The comparison validates routing quality and end-to-end efficiency. It must not
-replace either editing implementation or remove the `patch-only` baseline.
+The first benchmark should run with max_steps and
+MAX_EDIT_FAILURES_PER_REVISION only. Add more specialized retry controls only
+when a measured failure mode justifies them.
 
-## 19. Deterministic test matrix
+## 12. Implementation guidance
 
-At minimum, mocked Agent/tool tests must cover:
+Keep the implementation within the existing Planner, Executor, ToolRunner,
+prompt, trace, CLI, and evaluation boundaries described in
+[Yada architecture](architecture.md).
 
-### Strategy and interface
+The design deliberately does not define a new editing.py state machine or copy
+the complete Agent loop into this document. Source code and tests are the
+authoritative description of implementation mechanics. After Issue #10 lands,
+this section should link to the small policy functions and their tests rather
+than duplicate them.
 
-- `patch-only` exposes no `replace_text` schema;
-- `replace-first` exposes both edit schemas;
-- schemas and prompt fingerprints remain identical across all model requests in
-  a run;
-- `run_start` records strategy and fingerprints.
+replace_text and apply_patch remain data-plane tools. Neither contains routing
+policy or invokes the other as a strategy fallback.
 
-### Turn isolation
+## 13. Industry context
 
-- a turn containing `replace_text` and `apply_patch` executes neither edit;
-- a failed edit is present in the next model request;
-- a model-generated read and edit in the same turn cannot satisfy a pending
-  recovery read.
+Exact unique replacement, optimistic concurrency checks, fail-closed
+transactions, structured errors, and trace-based evaluation are established
+patterns rather than one universal editing algorithm. Comparable examples
+include [Gemini CLI file tools](https://github.com/google-gemini/gemini-cli/blob/main/docs/tools/file-system.md),
+[Claude text editor](https://platform.claude.com/docs/en/agents-and-tools/tool-use/text-editor-tool),
+and HTTP [If-Match](https://www.rfc-editor.org/rfc/rfc9110.html#section-13.1.1).
 
-### Replacement recovery
-
-- `stale_hash` performs a bounded re-read before retry authorization;
-- `no_match` permits one corrected replace or a deliberate patch after a fresh
-  read;
-- a second corrected `no_match` enters `PATCH_REQUIRED`;
-- `ambiguous_match` requires a larger anchor and never triggers blind patch;
-- persistent ambiguity terminates explicitly;
-- `invalid_edit` with unchanged arguments is rejected without execution;
-- `unsupported_target` enters `PATCH_REQUIRED` only for patch-supported
-  operations.
-
-### Patch recovery
-
-- `invalid_patch` permits one regenerated patch;
-- `patch_context_mismatch` re-reads hunk ranges before retry;
-- persistent invalid/context-mismatched patch terminates;
-- repeated identical patch arguments are not executed twice;
-- `apply_failed` terminates and preserves diagnostics.
-
-### Loop prevention
-
-- alternating replace and patch failures consume the per-revision failure
-  budget;
-- alternating error codes cannot evade the global failure budget;
-- repeated disallowed tools consume the protocol budget;
-- repeated identical reads do not reset the no-progress budget;
-- a successful edit resets per-revision recovery counters;
-- every mocked loop reaches a stable finished or unfinished result in finite
-  steps.
-
-### Safety and verification
-
-- failed edits do not change revision, files, touched paths, or verification;
-- successful fallback remains SHA-bound and transactional;
-- successful fallback invalidates previous verification;
-- `finish` remains unavailable until a relevant post-edit test/build succeeds.
-
-## 20. Suggested implementation boundaries
-
-The state machine should remain small and independent of tool implementation
-details.
-
-Suggested integration points:
-
-- `src/yada/editing.py`: enums, state records, budgets, transition and
-  authorization logic;
-- `src/yada/tools/schemas.py`: strategy-specific stable schema construction;
-- `src/yada/tools/runner.py`: frozen strategy, schemas, handlers, and direct
-  execution boundary;
-- `src/yada/agents/prompts.py`: strategy-specific routing and recovery
-  instructions;
-- `src/yada/agents/planning.py`: one-edit-per-turn batch validation;
-- `src/yada/agents/executor.py`: authorization, recovery reads, result wrapping,
-  and trace events;
-- `src/yada/agents/default.py`: run-start metadata, controller lifetime, message
-  loop, progress and terminal checks;
-- `src/yada/evals/`: strategy plumbing, trace metric extraction, comparison,
-  and reporting.
-
-`replace_text` and `apply_patch` remain the data-plane editing implementations.
-They should not contain model-routing logic or silently call each other as a
-fallback. `replace_text` may continue to reuse the validated patch application
-boundary internally for transactional file application.
-
-## 21. Industry positioning
-
-There is no single industry-standard algorithm for deciding when a coding Agent
-should replace text or generate a patch. The broadly established pattern is to
-combine:
-
-- exact, unique replacement for targeted edits;
-- optimistic concurrency checks for writes;
-- transactional and fail-closed editing;
-- structured tool errors;
-- a deterministic host policy around model-proposed actions;
-- bounded retries, timeouts, and explicit terminal states;
-- trace-based evaluation over repeated trials.
-
-Relevant examples and references:
-
-- [Gemini CLI file tools](https://github.com/google-gemini/gemini-cli/blob/main/docs/tools/file-system.md)
-  use exact targeted replacement and default to one occurrence;
-- [Claude text editor](https://platform.claude.com/docs/en/agents-and-tools/tool-use/text-editor-tool)
-  uses exact `str_replace` semantics;
-- [RFC 9110, If-Match](https://www.rfc-editor.org/rfc/rfc9110.html#section-13.1.1)
-  describes strong preconditions used to prevent lost updates;
-- [Gemini CLI policy engine](https://github.com/google-gemini/gemini-cli/blob/main/docs/reference/policy-engine.md)
-  evaluates model-proposed tool calls using deterministic host rules;
-- [LangGraph workflows and agents](https://docs.langchain.com/oss/python/langgraph/workflows-agents)
-  distinguishes predetermined workflow control from dynamic Agent decisions;
-- [Anthropic Agent Evals](https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents)
-  recommends repeated trials, trace inspection, and multiple evaluation layers.
-
-The algorithm in this document follows that hybrid pattern while preserving the
-specific safety and evaluation constraints of Issue #10.
+Yada keeps only the parts needed to test Issue #10 without turning the harness
+into a general workflow engine.
