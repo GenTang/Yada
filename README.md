@@ -54,6 +54,17 @@ passed its verification gate. Traces are written under the target repository's
 Repository tests can execute arbitrary code. Yada provides guardrails, not a
 complete OS sandbox; use a disposable VM or container for unfamiliar projects.
 
+## Inspect every step
+
+Turn any JSONL trace into a self-contained offline viewer—no server, CDN, or
+additional runtime dependency required:
+
+```bash
+uv run yada-trace TRACE.jsonl --html
+```
+
+[![Yada offline trace viewer](docs/assets/yada-trace-viewer.jpg)](docs/assets/yada-trace-viewer.jpg)
+
 ## Learn more
 
 - [Configuration](docs/configuration.md): installation alternatives, API key,

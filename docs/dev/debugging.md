@@ -124,6 +124,8 @@ runs locally in the browser. Large prompts, patches, and command output
 are collapsed by default. The viewer preserves redaction from the JSONL and
 cannot recover omitted or redacted fields.
 
+[![Yada offline trace viewer](../assets/yada-trace-viewer.jpg)](../assets/yada-trace-viewer.jpg)
+
 Then inspect exact records using the line references:
 
 ```bash
