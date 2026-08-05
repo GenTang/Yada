@@ -32,6 +32,7 @@ uv run yada --task-file issue.md --workspace /path/to/repository
 | `TASK` | Natural-language coding task. | — |
 | `--task-file PATH` | Read the task from a UTF-8 file. | — |
 | `--workspace PATH` | Target Git workspace. | Current directory |
+| `--api-key-file PATH` | Read the DeepSeek key from a private file. | Per-user config file, then compatibility environment fallback |
 | `--model NAME` | DeepSeek model name. | `DEEPSEEK_MODEL` or `deepseek-v4-pro` |
 | `--base-url URL` | DeepSeek-compatible API base URL. | `DEEPSEEK_BASE_URL` or `https://api.deepseek.com` |
 | `--reasoning-effort high\|max` | Thinking effort. | `max` |
@@ -290,6 +291,7 @@ container; Yada's automatic Agent command container applies only to the native
 | `--max-steps N` | Model-turn budget. | `30` |
 | `--wall-time SECONDS` | Comparable wall-time budget. | `1800` |
 | `--max-output-tokens N` | Per-completion token limit. | `16384` |
+| `--api-key-file PATH` | Private DeepSeek credential file for the native Yada agent. | Per-user config file, then compatibility environment fallback |
 | `--editing-strategy patch-only\|replace-first` | Native Yada editing policy. | `replace-first` |
 
 The native agent also accepts the model, thinking, timeout, command-policy, and

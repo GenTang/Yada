@@ -11,6 +11,7 @@ from yada import __version__
 from yada.agents import Agent
 from yada.editing import DEFAULT_EDITING_STRATEGY, EDITING_STRATEGY_CHOICES
 from yada.models import DeepSeekAPIError, DeepSeekClient
+from yada.secrets import SecretConfigError, load_deepseek_api_key
 from yada.tools import ToolRunner
 from yada.traces import TraceWriter
 from yada.utils.naming import next_available_run_name, readable_run_name
@@ -38,6 +39,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--model",
         default=os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-pro"),
         help="DeepSeek model name.",
+    )
+    parser.add_argument(
+        "--api-key-file",
+        type=Path,
+        help=(
+            "Read the DeepSeek API key from a private file instead of placing "
+            "the secret in the environment."
+        ),
     )
     parser.add_argument(
         "--base-url",
@@ -124,9 +133,10 @@ def run_cli(argv: list[str] | None = None) -> int:
     workspace = args.workspace.expanduser().resolve()
     if not workspace.is_dir():
         parser.error(f"workspace is not a directory: {workspace}")
-    api_key = os.environ.get("DEEPSEEK_API_KEY", "")
-    if not api_key:
-        parser.error("DEEPSEEK_API_KEY is not set")
+    try:
+        api_key = load_deepseek_api_key(args.api_key_file)
+    except SecretConfigError as exc:
+        parser.error(str(exc))
 
     trace_path = args.trace or _default_trace_path(workspace, task)
     command_policy = "allow" if args.yes else args.command_policy

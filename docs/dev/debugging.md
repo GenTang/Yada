@@ -243,7 +243,9 @@ SWE-bench score. Use the official Docker grader for published results; see the
 
 ## Common failure signals
 
-- **`DEEPSEEK_API_KEY is not set`**: export the key in the shell launching Yada.
+- **`DeepSeek API key not found`**: create the private default credential file,
+  pass `--api-key-file`, or configure `DEEPSEEK_API_KEY_FILE`; see
+  [DeepSeek credentials](../configuration.md#deepseek-credentials).
 - **No request payload in a trace**: rerun with `--trace-level debug`.
 - **`finish_task` rejected**: run a successful `test` or `build` after the latest patch.
 - **Tool reports `ok` but tests failed**: inspect the command `exit_code`.

@@ -8,5 +8,9 @@ build/
 dist/
 *.egg-info/
 .yada/
+# Single-task and suite evaluation outputs, including workspaces and traces.
 eval-results/
+# Local background-run supervisor files from the documented suite command.
+eval_run.log
+eval_run.pid
 logs/

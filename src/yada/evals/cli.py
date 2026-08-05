@@ -14,6 +14,7 @@ from yada.evals.agents import CommandAgentAdapter, YadaAgentAdapter
 from yada.evals.base import RunBudget
 from yada.evals.benchmarks import LocalBenchmark, SWEbenchBenchmark
 from yada.evals.runner import EvalRunner
+from yada.secrets import SecretConfigError, load_deepseek_api_key
 from yada.utils.naming import next_available_run_name, readable_run_name
 
 
@@ -67,6 +68,14 @@ def build_parser() -> argparse.ArgumentParser:
     budget.add_argument("--max-output-tokens", type=int, default=16_384)
 
     model = parser.add_argument_group("Yada / DeepSeek")
+    model.add_argument(
+        "--api-key-file",
+        type=Path,
+        help=(
+            "Read the DeepSeek API key from a private file instead of placing "
+            "the secret in the environment."
+        ),
+    )
     model.add_argument(
         "--model",
         default=os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-pro"),
@@ -141,9 +150,10 @@ def run_cli(argv: list[str] | None = None) -> int:
     )
 
     if args.agent == "yada":
-        api_key = os.environ.get("DEEPSEEK_API_KEY", "")
-        if not api_key:
-            parser.error("DEEPSEEK_API_KEY is required for --agent yada")
+        try:
+            api_key = load_deepseek_api_key(args.api_key_file)
+        except SecretConfigError as exc:
+            parser.error(str(exc))
         agent = YadaAgentAdapter(
             api_key=api_key,
             model=args.model,
