@@ -45,10 +45,11 @@ Editing strategy: patch-only.
 
 _REPLACE_FIRST_POLICY = """
 Editing strategy: replace-first.
-- For a localized change to an existing text file, prefer replace_text with an exact,
-  unique, reasonably bounded old_text.
-- Use apply_patch for new or deleted files, broad structural changes, or edits that
-  cannot be expressed with a reasonably sized exact anchor.
+- Prefer replace_text when the change fits one localized code region and can use the
+  smallest exact old_text that matches once.
+- Use apply_patch for new or deleted files, broad structural changes, multiple separated
+  regions, large definition rewrites, or edits that need a large source block only to
+  make old_text unique.
 - After a failure, follow the structured recovery instruction. Retry or switch tools
   only in a later turn after observing the result.
 """
@@ -82,11 +83,9 @@ def task_prompt(task: str) -> str:
         The stable user-message template used to start an agent run.
     """
 
-    return f"""Workspace: the tool root (shown as `.`).
-
-Task:
+    return f"""Task:
 {task.strip()}
 
-Complete the task autonomously. Existing visible tests may be used, but hidden tests are
-not available. Preserve existing behavior outside the requested change.
+Complete the task autonomously. Use only files and tests available in the workspace.
+Preserve existing behavior outside the requested change.
 """

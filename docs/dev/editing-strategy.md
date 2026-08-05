@@ -97,15 +97,15 @@ The run_start trace records:
 Use replace_text when all of these are true:
 
 - the target is an existing regular UTF-8 text file;
-- the intended change is localized;
-- current source text supplies an exact, unique anchor;
-- the anchor is reasonably bounded.
+- the intended change fits one localized code region;
+- current source text supplies the smallest exact anchor that matches once.
 
 Use apply_patch directly when:
 
 - creating or deleting a file;
 - applying a large structural rewrite;
-- the exact anchor would reproduce an impractically large source block;
+- changing multiple separated regions or rewriting a large definition;
+- making the exact anchor unique would require an impractically large source block;
 - replace_text does not support the target operation.
 
 Issue #10 also names renames as a patch case. The current Issue #8 patch

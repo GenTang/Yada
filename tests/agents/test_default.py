@@ -272,11 +272,19 @@ def test_strategy_prompts_are_explicit_and_stable() -> None:
     assert "Use apply_patch for every workspace edit" in patch_prompt
     assert "follow the structured recovery instruction" in patch_prompt
     assert "Editing strategy: replace-first" in replace_prompt
-    assert "prefer replace_text with an exact" in replace_prompt
+    assert "Prefer replace_text when the change fits one localized" in replace_prompt
+    assert "multiple separated" in replace_prompt
+    assert "smallest exact old_text that matches once" in replace_prompt
     assert "Once the target and intended edit are clear" in replace_prompt
     assert "Do not repeat" in replace_prompt
     assert "Retry or switch tools" in replace_prompt
     assert replace_prompt == replace_planner.initial_messages("Fix it")[0]["content"]
+
+    task_message = replace_planner.initial_messages("Fix it")[1]["content"]
+    assert task_message.startswith("Task:\nFix it\n")
+    assert "Use only files and tests available in the workspace" in task_message
+    assert "Workspace: the tool root" not in task_message
+    assert "hidden tests" not in task_message
 
 
 def test_agent_rejects_mismatched_strategy_components(tmp_path: Path) -> None:
