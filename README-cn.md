@@ -32,11 +32,18 @@ git clone https://github.com/GenTang/Yada.git
 cd Yada
 uv sync --locked --dev
 
-export DEEPSEEK_API_KEY="sk-..."
+install -d -m 700 ~/.config/yada
+(umask 077; touch ~/.config/yada/deepseek_api_key)
+chmod 600 ~/.config/yada/deepseek_api_key
+${EDITOR:-vi} ~/.config/yada/deepseek_api_key
 
 uv run yada "修复 parser 的边界问题，并运行相关测试" \
   --workspace /path/to/repository
 ```
+
+文件中只写 API Key。对于 Docker、云主机或 Secret Manager 挂载，也可以使用
+`--api-key-file /run/secrets/deepseek_api_key`；详见
+[配置文档](docs/configuration.md#deepseek-credentials)。
 
 Yada 默认会在运行仓库命令前请求确认。只有在可信、一次性的隔离环境中才应使用
 `--yes`：

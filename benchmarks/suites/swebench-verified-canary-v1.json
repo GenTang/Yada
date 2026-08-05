@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "suite_id": "swebench-verified-canary-v1",
+  "benchmark": "swebench-verified",
+  "description": "A small, versioned SWE-bench Verified canary for development signal before larger runs.",
+  "instances": [
+    "pytest-dev__pytest-10051",
+    "pytest-dev__pytest-10081",
+    "pytest-dev__pytest-10356",
+    "django__django-15987",
+    "sympy__sympy-19637",
+    "sphinx-doc__sphinx-9367",
+    "scikit-learn__scikit-learn-13439",
+    "pydata__xarray-6461"
+  ]
+}

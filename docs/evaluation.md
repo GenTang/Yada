@@ -43,7 +43,8 @@ Before this pipeline starts, the CLI:
 2. resolves the result and artifact paths;
 3. creates a run ID containing UTC time and a random suffix;
 4. configures the native Yada or external command agent; and
-5. requires `DEEPSEEK_API_KEY` when the native Yada agent is selected.
+5. resolves a private API key file (or the compatibility environment fallback)
+   when the native Yada agent is selected.
 
 The default result name uses system-local time at minute precision. A collision
 adds `(1)`, `(2)`, and so on. The result and artifact directory always receive
@@ -83,6 +84,136 @@ Without Docker, use direct `yada ...` for normal repository work or
 `yada eval --case PATH` for a reproducible local evaluation. A case manifest
 may choose to invoke Docker itself, but Docker is not a Yada requirement for
 this path.
+
+## Choose the smallest useful evaluation scale
+
+Evaluation should expand in explicit stages. A larger stage costs more time,
+model tokens, network traffic, and Docker storage; it does not replace the
+faster signal from the stages before it.
+
+| Scale | Use it for | Typical task set | Meaning |
+| --- | --- | --- | --- |
+| Local case | Developing or debugging a prompt, tool, adapter, or grader change | One checked-in `--case` recipe | Fast project-specific regression signal; not an official SWE-bench result |
+| Canary suite | Checking that an evaluation-affecting change behaves plausibly across projects before spending on a pilot | The versioned Canary-8 manifest | Repeatable development signal with aggregate metrics and resumable execution |
+| Pilot sample | Estimating variance, failures, and operational cost before a full run | A fixed, reviewed sample larger than the canary | Preflight evidence; record and version the sample rather than selecting tasks during the run |
+| Full benchmark | Producing the final result after the implementation and run configuration are frozen | All 500 SWE-bench Verified tasks | The only full-dataset result, still requiring complete methodology and provenance for any comparison |
+
+Run the checked-in Canary-8 suite with the pinned Harness environment:
+
+```bash
+uv run --with 'swebench==4.1.0' \
+  python scripts/eval_suite.py run \
+  benchmarks/suites/swebench-verified-canary-v1.json \
+  --api-key-file ~/.config/yada/deepseek_api_key
+```
+
+The development-only runner calls the existing single-task command once per
+instance, sequentially:
+
+```text
+python -m yada eval --swebench INSTANCE_ID
+```
+
+It does not add a public `yada eval-suite` command or code under `src/yada`.
+Every instance runs once unless the whole suite receives `--repeat N`; there are
+no per-instance repeat overrides. Model, budget, and secret-file options also
+apply uniformly to every attempt. Only the secret path may enter suite run
+metadata; the key value is never copied.
+
+The runner prints the new suite directory under `eval-results/suites/`. That
+directory contains a manifest snapshot, run metadata, isolated attempt
+directories, and deterministic `summary.json` and `summary.md` files. It is
+already covered by the repository's `eval-results/` ignore rule, so raw
+workspaces, traces, Harness logs, and Docker data are not committed.
+
+After Ctrl-C or another interruption, resume the printed directory:
+
+```bash
+uv run --with 'swebench==4.1.0' \
+  python scripts/eval_suite.py run \
+  benchmarks/suites/swebench-verified-canary-v1.json \
+  --resume eval-results/suites/SUITE_DIRECTORY
+```
+
+Resume requires the same manifest hash, Yada commit, model, budgets, and global
+repeat count. Completed attempts are skipped. An attempt whose atomic Yada
+result was written immediately before interruption is recovered; an incomplete
+workspace is retained for diagnosis and the retry uses a new execution
+directory. Ordinary resolved, unresolved, and error outcomes never stop later
+tasks.
+
+The summaries report outcome counts and resolution rate; per-attempt and
+per-instance steps, token usage, and Agent duration; repeated-run min, max, and
+median; semantic patch IDs and patch convergence; and result, artifact, and
+trace paths. They record only safe run configuration and never copy API keys
+from any credential source. Canary and pilot summaries are development
+evidence, not official leaderboard scores.
+
+## Long-running suites on a remote host
+
+Yada calls a remote model API and runs SWE-bench in Docker, so this workload
+does not need a GPU. Prefer an `x86_64` Linux host: upstream SWE-bench recommends
+at least 8 CPU cores, 16 GB RAM, and 120 GB of free storage, and describes ARM
+support as experimental. The suite runner is intentionally sequential, so a
+larger machine improves an individual build or test but does not make multiple
+instances run concurrently.
+
+For AWS, a current-generation general-purpose Intel instance such as
+`m8i.2xlarge` (8 vCPU, 32 GiB), with `m7i.2xlarge` as a broadly available
+fallback, is a practical starting point. Use an encrypted persistent `gp3` EBS
+volume rather than instance storage. The upstream 120 GB figure covers the
+Harness baseline; Yada also retains result workspaces and traces. Start around
+300 GB for canary and pilot work, and size a full 500-task volume from measured
+pilot growth—500 GB to 1 TB is a safer initial range when retaining every raw
+workspace. Monitor both `df -h` and `docker system df`.
+
+Use an EC2 instance role, not long-lived AWS access keys. Give it only
+`secretsmanager:GetSecretValue` for the DeepSeek secret, the permissions needed
+for Systems Manager, and optional access to a dedicated result bucket. Systems
+Manager Session Manager allows administration without an inbound SSH rule.
+Materialize the DeepSeek value into a private memory-backed file before the run:
+
+```bash
+install -d -m 700 /dev/shm/yada
+umask 077
+aws secretsmanager get-secret-value \
+  --secret-id yada/deepseek-api-key \
+  --query SecretString \
+  --output text \
+  --no-cli-pager \
+  > /dev/shm/yada/deepseek_api_key
+chmod 600 /dev/shm/yada/deepseek_api_key
+```
+
+Then run with unbuffered logs and place both the checkout and output directory
+on EBS:
+
+```bash
+nohup env PYTHONUNBUFFERED=1 \
+  uv run --with 'swebench==4.1.0' \
+  python -u scripts/eval_suite.py run \
+  benchmarks/suites/swebench-verified-canary-v1.json \
+  --api-key-file /dev/shm/yada/deepseek_api_key \
+  --repeat 3 \
+  --max-steps 60 \
+  --output-dir /data/yada-results/canary-v1-r3 \
+  > /data/yada-results/canary-v1-r3.log 2>&1 < /dev/null &
+```
+
+Use On-Demand for the first long run. Spot can reduce compute cost after resume
+has been tested, but interruption notice is short and a terminated instance can
+lose its root volume by default. Keep the suite directory on persistent EBS,
+preserve that volume on termination, and expect the current attempt to resume
+in a new execution directory. Copy `summary.json`, `summary.md`, and any needed
+diagnostics to encrypted object storage; raw traces and workspaces may contain
+sensitive source or model reasoning and should not be uploaded indiscriminately.
+
+References: [SWE-bench Docker setup](https://www.swebench.com/SWE-bench/guides/docker_setup/),
+[EC2 general-purpose instances](https://aws.amazon.com/ec2/instance-types/general-purpose/),
+[EBS gp3](https://docs.aws.amazon.com/ebs/latest/userguide/general-purpose.html),
+[EC2 IAM roles](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_use_switch-role-ec2.html),
+[Secrets Manager GetSecretValue](https://docs.aws.amazon.com/secretsmanager/latest/apireference/API_GetSecretValue.html),
+and [Session Manager](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager.html).
 
 ## Local case: `--case PATH`
 

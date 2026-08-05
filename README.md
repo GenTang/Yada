@@ -32,11 +32,18 @@ git clone https://github.com/GenTang/Yada.git
 cd Yada
 uv sync --locked --dev
 
-export DEEPSEEK_API_KEY="sk-..."
+install -d -m 700 ~/.config/yada
+(umask 077; touch ~/.config/yada/deepseek_api_key)
+chmod 600 ~/.config/yada/deepseek_api_key
+${EDITOR:-vi} ~/.config/yada/deepseek_api_key
 
 uv run yada "Fix the failing parser edge case and run the relevant tests" \
   --workspace /path/to/repository
 ```
+
+Enter only the API key in that file. Yada also accepts
+`--api-key-file /run/secrets/deepseek_api_key` for mounted secret stores; see
+[Configuration](docs/configuration.md#deepseek-credentials).
 
 Yada asks before running repository commands. Use `--yes` only inside a trusted,
 disposable environment:

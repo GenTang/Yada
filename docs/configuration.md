@@ -28,21 +28,35 @@ After editable installation, use `.venv/bin/yada`; after `uv sync`, use
 
 ## DeepSeek credentials
 
-`DEEPSEEK_API_KEY` is required when the native Yada agent calls DeepSeek:
+The recommended setup is a private file at
+`~/.config/yada/deepseek_api_key`:
 
 ```bash
-export DEEPSEEK_API_KEY="sk-..."
+install -d -m 700 ~/.config/yada
+(umask 077; touch ~/.config/yada/deepseek_api_key)
+chmod 600 ~/.config/yada/deepseek_api_key
+${EDITOR:-vi} ~/.config/yada/deepseek_api_key
 ```
 
-PowerShell:
+Put only the API key in the file. On Linux and macOS, it must not grant any
+permissions to group or others (`0600` is recommended; `0400` is also valid).
+To use another location, pass it explicitly:
 
-```powershell
-$env:DEEPSEEK_API_KEY = "sk-..."
+```bash
+uv run yada "Fix the failing test" \
+  --api-key-file /run/secrets/deepseek_api_key \
+  --workspace /path/to/repository
 ```
 
-Do not put the key in a task file, trace, issue, or commit. Yada sends it only in
-the DeepSeek authorization header and removes secret-looking environment
-variables from repository subprocesses.
+Credential resolution order is:
+
+1. `--api-key-file PATH`;
+2. `DEEPSEEK_API_KEY_FILE`, containing a file path;
+3. `~/.config/yada/deepseek_api_key`; and
+4. `DEEPSEEK_API_KEY`, retained for compatibility.
+
+On Windows, the default file is `%APPDATA%\Yada\deepseek_api_key`. Never put
+the key in a command argument, task, trace, image, issue, or commit.
 
 ## Model and endpoint
 
@@ -240,9 +254,12 @@ network access:
 ```bash
 docker build -t yada .
 docker run --rm -it \
-  -e DEEPSEEK_API_KEY \
+  -v "$HOME/.config/yada/deepseek_api_key:/run/secrets/deepseek_api_key:ro" \
   -v "/path/to/repository:/workspace" \
-  yada "Fix the failing test" --workspace /workspace --yes
+  yada "Fix the failing test" \
+  --workspace /workspace \
+  --api-key-file /run/secrets/deepseek_api_key \
+  --yes
 ```
 
 Use a stronger sandbox when the repository or its dependencies are untrusted.

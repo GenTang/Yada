@@ -18,6 +18,14 @@ def test_eval_cli_has_two_task_selectors() -> None:
     assert case.editing_strategy == "replace-first"
 
 
+def test_eval_cli_accepts_a_private_api_key_file() -> None:
+    args = build_parser().parse_args(
+        ["--swebench", "owner__repo-1", "--api-key-file", "secret.txt"]
+    )
+
+    assert str(args.api_key_file) == "secret.txt"
+
+
 def test_eval_cli_exposes_editing_strategy() -> None:
     args = build_parser().parse_args(
         ["--case", "case-dir", "--editing-strategy", "replace-first"]
