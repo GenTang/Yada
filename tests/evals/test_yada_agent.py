@@ -106,6 +106,11 @@ def test_editing_metrics_capture_retry_and_success(tmp_path: Path) -> None:
         approver=CommandApprover("allow"),
         editing_strategy="replace-first",
     )
+    selected = tools.execute(
+        "select_strategy",
+        {"strategy": "direct_execute", "reason": "editing metric fixture"},
+    )
+    assert selected.data["ok"]
     digest = tools.workspace.sha256(path)
     trace_path = tmp_path / "metrics.jsonl"
     executor = Executor(

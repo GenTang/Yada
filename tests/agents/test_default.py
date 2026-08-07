@@ -61,12 +61,21 @@ class FakeClient:
         return self.completions.pop(0)
 
 
+def select_direct(runner: ToolRunner) -> None:
+    result = runner.execute(
+        "select_strategy",
+        {"strategy": "direct_execute", "reason": "legacy direct-flow test"},
+    )
+    assert result.data["ok"]
+
+
 def test_offline_end_to_end_loop(tmp_path: Path) -> None:
     path = tmp_path / "calc.py"
     path.write_text("def add(a, b):\n    return a - b\n", encoding="utf-8")
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     subprocess.run(["git", "add", "calc.py"], cwd=tmp_path, check=True)
     runner = ToolRunner(tmp_path, approver=CommandApprover("allow"))
+    select_direct(runner)
     digest = runner.workspace.sha256(path)
     patch = """diff --git a/calc.py b/calc.py
 --- a/calc.py
@@ -130,6 +139,7 @@ def test_step_limit_reports_verified_revision_without_finish(tmp_path: Path) -> 
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     subprocess.run(["git", "add", "value.py"], cwd=tmp_path, check=True)
     runner = ToolRunner(tmp_path, approver=CommandApprover("allow"))
+    select_direct(runner)
     digest = runner.workspace.sha256(path)
     client = FakeClient(
         [
@@ -184,6 +194,7 @@ def test_debug_trace_reconstructs_exact_client_payload(tmp_path: Path) -> None:
     path = tmp_path / "value.py"
     path.write_text("VALUE = 1\n", encoding="utf-8")
     runner = ToolRunner(tmp_path, approver=CommandApprover("allow"))
+    select_direct(runner)
     client = FakeClient(
         [
             tool_call("call-read", "read_file", {"path": "value.py"}),
@@ -330,6 +341,7 @@ def test_multiple_editing_calls_are_rejected_without_mutation(
         approver=CommandApprover("allow"),
         editing_strategy="replace-first",
     )
+    select_direct(runner)
     digest = runner.workspace.sha256(path)
     patch = """diff --git a/value.py b/value.py
 --- a/value.py
@@ -432,6 +444,7 @@ def test_failed_replace_is_observed_before_later_patch(tmp_path: Path) -> None:
         approver=CommandApprover("allow"),
         editing_strategy="replace-first",
     )
+    select_direct(runner)
     digest = runner.workspace.sha256(path)
     patch = """diff --git a/value.py b/value.py
 --- a/value.py

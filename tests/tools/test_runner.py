@@ -402,6 +402,11 @@ def test_command_environment_accepts_non_secret_task_values(
         approver=CommandApprover("allow"),
         command_environment={"YADA_CASE_MARKER": "ready"},
     )
+    selected = runner.execute(
+        "select_strategy",
+        {"strategy": "direct_execute", "reason": "command environment test"},
+    )
+    assert selected.data["ok"]
 
     result = runner.execute(
         "run_command",

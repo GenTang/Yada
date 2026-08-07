@@ -10,6 +10,7 @@ from yada.environments.approval import CommandApprover
 from yada.environments.commands import CommandExecutor, LocalCommandExecutor
 from yada.environments.workspace import Workspace
 from yada.exceptions import ToolError
+from yada.verification import VerificationWorkflow, WorkflowEvent
 
 
 @dataclass
@@ -28,6 +29,7 @@ class ToolContext:
     """Workspace, policy, limits, and state passed to every tool handler."""
 
     workspace: Workspace
+    workflow: VerificationWorkflow
     approver: CommandApprover
     command_timeout_seconds: int = 120
     max_output_chars: int = 12_000
@@ -42,6 +44,8 @@ class ToolExecution:
 
     data: dict[str, Any]
     finished: bool = False
+    stop_reason: str | None = None
+    events: tuple[WorkflowEvent, ...] = ()
 
     @property
     def content(self) -> str:

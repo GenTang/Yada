@@ -108,6 +108,8 @@ class Agent:
                 "max_steps": self.max_steps,
                 "editing_strategy": self.tools.editing_strategy.value,
                 "tool_names": list(self.tools.tool_names),
+                "verification_strategy": "model_selected",
+                "initial_phase": self.tools.context.workflow.phase.value,
                 "trace_level": self.trace.level,
                 "model_config": client_trace_config(self.client),
                 "provenance": collect_provenance(
@@ -117,8 +119,21 @@ class Agent:
             },
         )
 
+        session_id = "primary"
+        session_step = 0
+        self.trace.write(
+            "session_start",
+            {
+                "session_id": session_id,
+                "phase": self.tools.context.workflow.phase.value,
+                "start_step": 1,
+            },
+        )
+
         consecutive_text_turns = 0
         for step in range(1, self.max_steps + 1):
+            session_step += 1
+            phase = self.tools.context.workflow.phase.value
             self.emit(f"\n[{step}/{self.max_steps}] Asking DeepSeek...")
             context_metrics = _message_metrics(messages)
             request_id = f"{self.trace.run_id}:model:{step}"
@@ -126,6 +141,9 @@ class Agent:
                 "step": step,
                 "request_id": request_id,
                 "context": context_metrics,
+                "session_id": session_id,
+                "session_step": session_step,
+                "phase": phase,
             }
             if self.trace.level == "debug":
                 request_record["payload"] = _model_request_payload(
@@ -157,6 +175,9 @@ class Agent:
                         "duration_ms": round((time.monotonic() - started) * 1000),
                         "error_type": type(exc).__name__,
                         "error": str(exc),
+                        "session_id": session_id,
+                        "session_step": session_step,
+                        "phase": phase,
                     },
                 )
                 raise
@@ -175,6 +196,9 @@ class Agent:
                 "model": completion.model,
                 "system_fingerprint": completion.system_fingerprint,
                 "finish_reason": completion.finish_reason,
+                "session_id": session_id,
+                "session_step": session_step,
+                "phase": phase,
             }
             self.trace.write(
                 "assistant",
@@ -193,6 +217,9 @@ class Agent:
                     "tools": [tool_name(call) for call in plan.tool_calls],
                     "rejection_error": plan.rejection_error,
                     "rejection_error_code": plan.rejection_error_code,
+                    "session_id": session_id,
+                    "session_step": session_step,
+                    "phase": phase,
                 },
             )
             consecutive_text_turns = plan.consecutive_text_turns
@@ -203,7 +230,14 @@ class Agent:
                     raise RuntimeError("planner returned no calls and no reminder")
                 messages.append({"role": "user", "content": plan.reminder})
                 self.trace.write(
-                    "protocol_reminder", {"step": step, "text": plan.reminder}
+                    "protocol_reminder",
+                    {
+                        "step": step,
+                        "text": plan.reminder,
+                        "session_id": session_id,
+                        "session_step": session_step,
+                        "phase": phase,
+                    },
                 )
                 continue
 
@@ -212,7 +246,11 @@ class Agent:
                 plan.tool_calls,
                 rejection_error=plan.rejection_error,
                 rejection_error_code=plan.rejection_error_code,
+                session_id=session_id,
+                session_step=session_step,
+                phase=phase,
             )
+            session_stop_reason = None
             for executed in executed_calls:
                 messages.append(
                     {
@@ -231,11 +269,116 @@ class Agent:
                         usage=total_usage,
                         final_state=self.tools.final_state(),
                     )
+                    self.trace.write(
+                        "session_end",
+                        {
+                            "session_id": session_id,
+                            "phase": self.tools.context.workflow.phase.value,
+                            "end_step": step,
+                            "reason": "task_finished",
+                        },
+                    )
+                    self.trace.write("run_end", _result_record(result))
+                    return result
+                if executed.execution.stop_reason is not None:
+                    session_stop_reason = executed.execution.stop_reason
+
+            if session_stop_reason == "workflow_failed":
+                result = AgentResult(
+                    finished=False,
+                    steps=step,
+                    summary="Red-Green workflow could not establish a valid baseline.",
+                    usage=total_usage,
+                    final_state=self.tools.final_state(),
+                )
+                self.trace.write(
+                    "session_end",
+                    {
+                        "session_id": session_id,
+                        "phase": self.tools.context.workflow.phase.value,
+                        "end_step": step,
+                        "reason": session_stop_reason,
+                    },
+                )
+                self.trace.write("run_end", _result_record(result))
+                return result
+
+            if session_stop_reason == "test_frozen":
+                self.trace.write(
+                    "session_end",
+                    {
+                        "session_id": session_id,
+                        "phase": "red",
+                        "end_step": step,
+                        "reason": "test_frozen",
+                    },
+                )
+                workflow = self.tools.context.workflow
+                if workflow.frozen_test is not None and self.trace.path is not None:
+                    artifact_path = self.trace.path.with_suffix(".red-test.patch")
+                    artifact_path.write_text(
+                        workflow.frozen_test.patch,
+                        encoding="utf-8",
+                    )
+                    self.trace.write(
+                        "red_artifact_written",
+                        {
+                            "session_id": session_id,
+                            "phase": "red",
+                            "path": str(artifact_path),
+                            "test_patch_sha256": workflow.frozen_test.patch_sha256,
+                        },
+                    )
+                if step >= self.max_steps:
+                    result = AgentResult(
+                        finished=False,
+                        steps=step,
+                        summary=(
+                            "Valid Red evidence was frozen, but the run step budget "
+                            "was exhausted before the Fix session could start."
+                        ),
+                        usage=total_usage,
+                        final_state=self.tools.final_state(),
+                    )
                     self.trace.write("run_end", _result_record(result))
                     return result
 
+                workflow.start_fix()
+                if workflow.frozen_test is None:
+                    raise RuntimeError("test_frozen transition lost its evidence")
+                messages = self.planner.fix_messages(
+                    task, workflow.frozen_test.fix_context()
+                )
+                consecutive_text_turns = 0
+                session_id = "fix"
+                session_step = 0
+                self.trace.write(
+                    "session_start",
+                    {
+                        "session_id": session_id,
+                        "phase": "fix",
+                        "start_step": step + 1,
+                    },
+                )
+                for event in workflow.drain_events():
+                    self.trace.write(
+                        event.name,
+                        {
+                            "session_id": session_id,
+                            "phase": "fix",
+                            **event.data,
+                        },
+                    )
+                continue
+
         state = self.tools.context.state
-        if state.patch_count > 0 and state.verified_revision == state.revision:
+        workflow_phase = self.tools.context.workflow.phase.value
+        if workflow_phase == "red":
+            step_limit_summary = (
+                "Red phase reached the step limit without a valid frozen Red "
+                "observation; the run remains unfinished."
+            )
+        elif state.patch_count > 0 and state.verified_revision == state.revision:
             step_limit_summary = (
                 "Step limit reached after verification succeeded but before "
                 "finish_task was called."
@@ -250,6 +393,15 @@ class Agent:
             summary=step_limit_summary,
             usage=total_usage,
             final_state=self.tools.final_state(),
+        )
+        self.trace.write(
+            "session_end",
+            {
+                "session_id": session_id,
+                "phase": self.tools.context.workflow.phase.value,
+                "end_step": self.max_steps,
+                "reason": "step_limit",
+            },
         )
         self.trace.write("run_end", _result_record(result))
         return result

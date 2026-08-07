@@ -108,6 +108,23 @@ same-turn fallback. See the
 [editing strategy design](dev/editing-strategy.md) for routing and recovery
 rules.
 
+## Verification strategy
+
+Verification strategy is separate from editing strategy and is selected by the
+model through the mandatory `select_strategy` tool after optional read-only
+inspection:
+
+| Strategy | Behavior |
+| --- | --- |
+| `direct_execute` | Continue in the current session with the latest-revision test/build gate. |
+| `red_green` | Author a failing test in an isolated worktree, freeze it, then start a fresh Fix session. |
+
+The caller does not select this strategy. A successful selection is irreversible,
+and `red_green` never silently falls back to `direct_execute`. Red-Green requires
+a clean Git workspace with a valid HEAD. See the
+[Red-Green design](dev/red-green-verification.md) for its evidence and trace
+contract.
+
 ## Command execution policy
 
 Repository commands are independently validated and then handled by one of

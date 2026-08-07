@@ -25,6 +25,16 @@ def test_all_tool_parameters_describe_their_model_visible_semantics() -> None:
 def test_high_risk_tool_descriptions_expose_recovery_relevant_contracts() -> None:
     functions = _functions_by_name()
 
+    strategy = functions["select_strategy"]
+    assert strategy["parameters"]["properties"]["strategy"]["enum"] == [
+        "red_green",
+        "direct_execute",
+    ]
+
+    red = functions["submit_red_test"]
+    assert "Host validation" in red["description"]
+    assert red["parameters"]["required"] == ["target", "argv"]
+
     search = functions["search_code"]
     assert "regular expression" in search["description"]
     assert (

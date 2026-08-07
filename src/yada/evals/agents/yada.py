@@ -113,6 +113,7 @@ class YadaAgentAdapter:
                 details = {
                     "finished": native_result.finished,
                     "editing_strategy": self.editing_strategy.value,
+                    "verification_workflow": tools.context.workflow.snapshot(),
                     "editing_metrics": _editing_metrics(trace_path, tools),
                     **command_provenance,
                 }

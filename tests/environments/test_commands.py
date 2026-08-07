@@ -32,6 +32,11 @@ def test_docker_executor_mounts_workspace_and_routes_command(
         approver=CommandApprover("allow"),
         command_executor=executor,
     )
+    selected = runner.execute(
+        "select_strategy",
+        {"strategy": "direct_execute", "reason": "command backend test"},
+    )
+    assert selected.data["ok"]
 
     result = runner.execute(
         "run_command",
@@ -62,6 +67,11 @@ def test_docker_executor_mounts_workspace_and_routes_command(
 
 def test_local_executor_remains_the_default(tmp_path: Path) -> None:
     runner = ToolRunner(tmp_path, approver=CommandApprover("allow"))
+    selected = runner.execute(
+        "select_strategy",
+        {"strategy": "direct_execute", "reason": "local command test"},
+    )
+    assert selected.data["ok"]
 
     result = runner.execute(
         "run_command",

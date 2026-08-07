@@ -49,6 +49,9 @@ class Executor:
         *,
         rejection_error: str | None = None,
         rejection_error_code: str | None = None,
+        session_id: str | None = None,
+        session_step: int | None = None,
+        phase: str | None = None,
     ) -> list[ExecutedToolCall]:
         """Execute a validated batch while preserving model call order.
 
@@ -62,6 +65,7 @@ class Executor:
             One result per input call in the same order.
         """
 
+        metadata = _session_metadata(session_id, session_step, phase)
         if rejection_error is not None:
             self.trace.write(
                 "protocol_violation",
@@ -70,6 +74,7 @@ class Executor:
                     "error_code": rejection_error_code,
                     "error": rejection_error,
                     "call_count": len(tool_calls),
+                    **metadata,
                 },
             )
             return [
@@ -78,10 +83,14 @@ class Executor:
                     call,
                     rejection_error,
                     error_code=rejection_error_code,
+                    metadata=metadata,
                 )
                 for call in tool_calls
             ]
-        return [self._execute_tool_call(step, call) for call in tool_calls]
+        return [
+            self._execute_tool_call(step, call, metadata=metadata)
+            for call in tool_calls
+        ]
 
     def _rejected_call(
         self,
@@ -90,6 +99,7 @@ class Executor:
         error: str,
         *,
         error_code: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> ExecutedToolCall:
         call_id = _tool_call_id(call, step)
         name = tool_name(call)
@@ -105,12 +115,21 @@ class Executor:
                 "tool": name,
                 "rejected": True,
                 "error_code": error_code,
+                **(metadata or {}),
             },
         )
-        self._trace_result(step, call_id, name, execution, duration_ms=0)
+        self._trace_result(
+            step, call_id, name, execution, duration_ms=0, metadata=metadata
+        )
         return ExecutedToolCall(call_id, name, execution, 0)
 
-    def _execute_tool_call(self, step: int, call: dict[str, Any]) -> ExecutedToolCall:
+    def _execute_tool_call(
+        self,
+        step: int,
+        call: dict[str, Any],
+        *,
+        metadata: dict[str, Any] | None = None,
+    ) -> ExecutedToolCall:
         call_id = _tool_call_id(call, step)
         name = tool_name(call)
         raw_arguments = (call.get("function") or {}).get("arguments", "{}")
@@ -135,9 +154,12 @@ class Executor:
                     "tool_call_id": call_id,
                     "tool": name,
                     "raw_arguments": raw_arguments,
+                    **(metadata or {}),
                 },
             )
-            self._trace_result(step, call_id, name, execution, duration_ms=0)
+            self._trace_result(
+                step, call_id, name, execution, duration_ms=0, metadata=metadata
+            )
             return ExecutedToolCall(call_id, name, execution, 0)
 
         self.trace.write(
@@ -147,6 +169,7 @@ class Executor:
                 "tool_call_id": call_id,
                 "tool": name,
                 "arguments": arguments,
+                **(metadata or {}),
             },
         )
         started = time.monotonic()
@@ -156,7 +179,16 @@ class Executor:
         self.emit(f"  -> {status}")
         if not execution.data.get("ok"):
             self.emit(f"  {execution.data.get('error', 'unknown tool error')}")
-        self._trace_result(step, call_id, name, execution, duration_ms)
+        self._trace_result(
+            step, call_id, name, execution, duration_ms, metadata=metadata
+        )
+        for event in execution.events:
+            event_metadata = dict(metadata or {})
+            event_metadata["phase"] = self.tools.context.workflow.phase.value
+            self.trace.write(
+                event.name,
+                {"step": step, **event_metadata, **event.data},
+            )
         return ExecutedToolCall(call_id, name, execution, duration_ms)
 
     def _trace_result(
@@ -166,6 +198,7 @@ class Executor:
         name: str,
         execution: ToolExecution,
         duration_ms: int,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         self.trace.write(
             "tool_result",
@@ -175,6 +208,7 @@ class Executor:
                 "tool": name,
                 "duration_ms": duration_ms,
                 "result": execution.data,
+                **(metadata or {}),
             },
         )
 
@@ -188,3 +222,17 @@ def tool_name(call: dict[str, Any]) -> str:
 
 def _tool_call_id(call: dict[str, Any], step: int) -> str:
     return str(call.get("id") or f"missing-tool-call-id-{step}")
+
+
+def _session_metadata(
+    session_id: str | None, session_step: int | None, phase: str | None
+) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in {
+            "session_id": session_id,
+            "session_step": session_step,
+            "phase": phase,
+        }.items()
+        if value is not None
+    }

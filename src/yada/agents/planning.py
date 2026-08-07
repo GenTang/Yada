@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from yada.agents.prompts import system_prompt, task_prompt
+from yada.agents.prompts import fix_task_prompt, system_prompt, task_prompt
 from yada.editing import (
     DEFAULT_EDITING_STRATEGY,
     EditingStrategy,
@@ -19,6 +19,7 @@ from yada.editing import (
 )
 
 EDITING_TOOLS = frozenset({"replace_text", "apply_patch"})
+CONTROL_TOOLS = frozenset({"select_strategy", "submit_red_test", "finish_task"})
 
 
 @dataclass(frozen=True)
@@ -77,6 +78,25 @@ class Planner:
             {"role": "user", "content": task_prompt(task)},
         ]
 
+    def fix_messages(
+        self, task: str, evidence: dict[str, object]
+    ) -> list[dict[str, Any]]:
+        """Create a new Fix context without any Red conversation messages."""
+
+        if not task.strip():
+            raise ValueError("task must not be empty")
+        return [
+            {
+                "role": "system",
+                "content": (
+                    self._system_prompt
+                    + "\nFix session override: red_green is already selected and "
+                    "irreversible. Do not call select_strategy or submit_red_test.\n"
+                ),
+            },
+            {"role": "user", "content": fix_task_prompt(task, evidence)},
+        ]
+
     def plan(
         self,
         assistant_message: dict[str, Any],
@@ -122,15 +142,21 @@ class Planner:
         if editing_call_count > 1:
             rejection_error = "only one editing operation is allowed per assistant turn"
             rejection_error_code = "multiple_edit_operations"
-        elif len(tool_calls) > 1 and any(
-            _tool_name(call) == "finish_task" for call in tool_calls
-        ):
-            # Concurrent completion could report success while sibling calls are still
-            # mutating or verifying the repository, so reject the entire batch.
-            rejection_error = (
-                "finish_task must be the only tool call in its assistant turn"
+        elif len(tool_calls) > 1:
+            control = next(
+                (
+                    _tool_name(call)
+                    for call in tool_calls
+                    if _tool_name(call) in CONTROL_TOOLS
+                ),
+                None,
             )
-            rejection_error_code = "finish_task_must_be_alone"
+            if control is not None:
+                # Phase transitions cannot share a precomputed batch with side effects.
+                rejection_error = (
+                    f"{control} must be the only tool call in its assistant turn"
+                )
+                rejection_error_code = f"{control}_must_be_alone"
         return StepPlan(
             tool_calls=tool_calls,
             consecutive_text_turns=0,

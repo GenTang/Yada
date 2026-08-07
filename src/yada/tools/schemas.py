@@ -1,10 +1,40 @@
-"""Stable DeepSeek function schemas for Yada's six tools."""
+"""Stable DeepSeek function schemas for Yada's model-facing tools."""
 
 from __future__ import annotations
 
 from typing import Any
 
 TOOL_SCHEMAS: list[dict[str, Any]] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "select_strategy",
+            "description": (
+                "Select the irreversible Host-enforced verification strategy. "
+                "Read-only inspection is allowed first, but this tool must succeed "
+                "before any file edit. Call it alone in its assistant turn."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "strategy": {
+                        "type": "string",
+                        "enum": ["red_green", "direct_execute"],
+                        "description": (
+                            "Use red_green for a reproducible bug; use "
+                            "direct_execute when meaningful baseline failure is inapplicable."
+                        ),
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "Concise evidence-based reason for the selection.",
+                    },
+                },
+                "required": ["strategy", "reason"],
+                "additionalProperties": False,
+            },
+        },
+    },
     {
         "type": "function",
         "function": {
@@ -180,6 +210,44 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "submit_red_test",
+            "description": (
+                "Run and submit the exact target test for Host validation against "
+                "baseline production plus the current test-only patch. A valid "
+                "behavioral failure freezes the test and ends the Red session."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "target": {
+                        "type": "string",
+                        "description": (
+                            "Exact target test identity, also present as one argv item; "
+                            "for example tests/test_api.py::test_regression."
+                        ),
+                    },
+                    "argv": {
+                        "type": "array",
+                        "description": "Exact target-test command as separate argv strings.",
+                        "items": {"type": "string"},
+                    },
+                    "cwd": {
+                        "type": "string",
+                        "description": "Workspace-relative command directory; default '.'.",
+                    },
+                    "timeout_seconds": {
+                        "type": "integer",
+                        "description": "Timeout from 1 to 1800 seconds.",
+                    },
+                },
+                "required": ["target", "argv"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "run_command",
             "description": "Run an argv array without a shell for inspection, testing, or builds; do not modify workspace files. Prefer direct test/build commands; wrappers must propagate child exit status. Commands require policy approval unless Yada runs with --yes.",
             "parameters": {
@@ -207,6 +275,15 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                         "description": (
                             "Timeout from 1 to 1800 seconds; a timeout is returned as "
                             "a structured non-verification result."
+                        ),
+                    },
+                    "verification_role": {
+                        "type": "string",
+                        "enum": ["target", "regression"],
+                        "description": (
+                            "During the Fix phase, mark the exact frozen command as "
+                            "target or a distinct broader check as regression. Omit for "
+                            "direct_execute and ordinary inspection."
                         ),
                     },
                 },

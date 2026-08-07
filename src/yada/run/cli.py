@@ -140,6 +140,12 @@ def run_cli(argv: list[str] | None = None) -> int:
 
     trace_path = args.trace or _default_trace_path(workspace, task)
     command_policy = "allow" if args.yes else args.command_policy
+    tools = ToolRunner(
+        workspace,
+        command_policy=command_policy,
+        command_timeout_seconds=args.command_timeout,
+        editing_strategy=args.editing_strategy,
+    )
     agent = Agent(
         client=DeepSeekClient(
             api_key=api_key,
@@ -150,12 +156,7 @@ def run_cli(argv: list[str] | None = None) -> int:
             max_output_tokens=args.max_output_tokens,
             timeout_seconds=args.api_timeout,
         ),
-        tools=ToolRunner(
-            workspace,
-            command_policy=command_policy,
-            command_timeout_seconds=args.command_timeout,
-            editing_strategy=args.editing_strategy,
-        ),
+        tools=tools,
         trace=TraceWriter(
             trace_path,
             level=args.trace_level,
@@ -185,6 +186,8 @@ def run_cli(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         print("\nInterrupted.", file=sys.stderr)
         return 130
+    finally:
+        tools.close()
 
     print("\n=== Yada result ===")
     print(f"Finished: {result.finished}")

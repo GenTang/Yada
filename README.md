@@ -58,6 +58,11 @@ Yada prints each DeepSeek turn and tool execution, then reports whether the task
 passed its verification gate. Traces are written under the target repository's
 `.yada/runs/` directory by default.
 
+Before editing, the model must select `direct_execute` or the Host-enforced
+`red_green` workflow. Red-Green runs observe a failing regression test in an
+isolated worktree, freeze it, and start a fresh Fix session with explicit evidence
+only. Both sessions remain in one trace and HTML report.
+
 Unfamiliar projects may contain and execute arbitrary code. Yada provides
 guardrails, but it is not a complete operating-system sandbox, so running such
 projects can still put your system at risk. Use a disposable VM or container

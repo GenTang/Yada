@@ -49,6 +49,9 @@ def run_command(
     purpose: str,
     cwd: str = ".",
     timeout_seconds: int | None = None,
+    verification_role: str | None = None,
+    _red_observation: bool = False,
+    _observe_workflow: bool = True,
 ) -> dict[str, Any]:
     """Run one policy-gated command without invoking a shell parser.
 
@@ -68,6 +71,11 @@ def run_command(
 
     if purpose not in {"inspect", "test", "build"}:
         raise ToolError("purpose must be inspect, test, or build")
+    if verification_role not in {None, "target", "regression"}:
+        raise ToolError(
+            "verification_role must be target or regression",
+            error_code="invalid_verification_role",
+        )
     if not isinstance(argv, list) or not argv or len(argv) > 40:
         raise ToolError("argv must be a non-empty array with at most 40 items")
     if not all(isinstance(item, str) and item and "\0" not in item for item in argv):
@@ -115,14 +123,28 @@ def run_command(
     # Verification is tied to the current revision. A later patch increments the
     # revision and invalidates this success, so finish_task cannot use stale output.
     if purpose in {"test", "build"} and exit_code == 0 and not timed_out:
-        context.state.verified_revision = context.state.revision
-        context.state.successful_verifications.append(
-            {
-                "argv": argv,
-                "purpose": purpose,
-                "revision": context.state.revision,
-                "duration_ms": duration_ms,
-            }
+        if (
+            context.workflow.strategy is None
+            or context.workflow.strategy.value == "direct_execute"
+        ):
+            context.state.verified_revision = context.state.revision
+            context.state.successful_verifications.append(
+                {
+                    "argv": argv,
+                    "purpose": purpose,
+                    "revision": context.state.revision,
+                    "duration_ms": duration_ms,
+                }
+            )
+    if not _red_observation and _observe_workflow:
+        context.workflow.observe_fix_command(
+            argv=argv,
+            cwd=display_cwd,
+            purpose=purpose,
+            verification_role=verification_role,
+            exit_code=exit_code,
+            timed_out=timed_out,
+            revision=context.state.revision,
         )
     return {
         "argv": argv,
@@ -140,4 +162,5 @@ def run_command(
             else None
         ),
         "environment": context.command_executor.name,
+        "verification_role": verification_role,
     }

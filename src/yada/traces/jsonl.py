@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-TRACE_SCHEMA_VERSION = 2
+TRACE_SCHEMA_VERSION = 3
 TRACE_LEVELS = {"summary", "debug"}
 _REDACTED = "[REDACTED]"
 _SECRET_KEYS = {

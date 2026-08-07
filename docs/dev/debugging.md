@@ -248,6 +248,12 @@ SWE-bench score. Use the official Docker grader for published results; see the
   [DeepSeek credentials](../configuration.md#deepseek-credentials).
 - **No request payload in a trace**: rerun with `--trace-level debug`.
 - **`finish_task` rejected**: run a successful `test` or `build` after the latest patch.
+- **`strategy_required`**: call `select_strategy` alone before the first edit.
+- **`baseline_unavailable`**: `red_green` requires a clean Git workspace and HEAD;
+  the run remains unfinished and cannot downgrade to direct execution.
+- **Invalid Red observation**: inspect `red_observed` for collection, import,
+  dependency, skip, timeout, or infrastructure classification.
+- **`frozen_test_edit_rejected`**: the Fix session attempted to alter Red evidence.
 - **Tool reports `ok` but tests failed**: inspect the command `exit_code`.
 - **No `run_end`**: the process was interrupted or raised outside a graceful path.
 - **Step limit reached**: inspect repeated reminders, failed tools, context growth,

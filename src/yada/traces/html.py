@@ -20,6 +20,20 @@ from yada.traces.report import (
 _EDIT_TOOLS = {"apply_patch", "replace_text"}
 _COLLAPSE_CHARS = 4_000
 _TITLE_CHARS = 120
+_WORKFLOW_EVENTS = {
+    "session_start",
+    "session_end",
+    "strategy_selected",
+    "red_started",
+    "red_observed",
+    "test_frozen",
+    "red_artifact_written",
+    "fix_started",
+    "green_observed",
+    "regression_verified",
+    "verification_invalidated",
+    "finish_accepted",
+}
 
 
 def render_trace_html(path: Path) -> str:
@@ -130,6 +144,16 @@ def _render_run_details(run: TraceRun) -> str:
         model_config,
         open_by_default=False,
     )
+    workflow = [
+        {"line": event.line_number, "event": event.name, **event.data}
+        for event in run.events
+        if event.name in _WORKFLOW_EVENTS
+    ]
+    details += _details(
+        "Verification workflow",
+        workflow or "No verification workflow events recorded.",
+        open_by_default=bool(workflow),
+    )
     details += _details(
         "Provenance",
         start.get("provenance", "Unavailable"),
@@ -161,6 +185,8 @@ def _render_run_details(run: TraceRun) -> str:
 
 def _render_filters() -> str:
     filters = (
+        ("phase-red", "Red phase"),
+        ("phase-fix", "Fix phase"),
         ("model-error", "Model errors"),
         ("protocol-violation", "Protocol violations"),
         ("rejected-tool", "Rejected tools"),
@@ -180,6 +206,9 @@ def _render_step_button(step: TraceStep, *, selected: bool) -> str:
     duration = response.data.get("duration_ms") if response else None
     tokens = _total_tokens(response.data.get("usage")) if response else None
     facts = []
+    phase = _step_phase(step)
+    if phase:
+        facts.append(phase)
     if isinstance(duration, (int, float)):
         facts.append(_duration(duration))
     if tokens is not None:
@@ -202,6 +231,7 @@ def _render_step(step: TraceStep, *, selected: bool) -> str:
     flag_text = " ".join(flags)
     badges = "".join(f'<span class="badge">{_escape(flag)}</span>' for flag in flags)
     warnings = _render_step_warnings(step)
+    phase = _step_phase(step)
     request = _located(step.model_request)
     response = _response(step.model_response)
     plan = _located(step.plan_decision)
@@ -211,7 +241,7 @@ def _render_step(step: TraceStep, *, selected: bool) -> str:
 <article class="step-panel" id="step-{step.number}" data-flags="{flag_text}"{hidden}>
   <header class="step-header" data-searchable>
     <div><p class="eyebrow">Lines {step.first_line}–{step.last_line}</p>
-    <h2>Step {step.number}</h2></div>
+    <h2>Step {step.number}{_escape(f" · {phase}" if phase else "")}</h2></div>
     <div class="badges">{badges}</div>
   </header>
   {warnings}
@@ -243,6 +273,9 @@ def _render_step_warnings(step: TraceStep) -> str:
 
 def _step_flags(step: TraceStep) -> tuple[str, ...]:
     flags = []
+    phase = _step_phase(step)
+    if phase in {"red", "fix"}:
+        flags.append(f"phase-{phase}")
     if step.model_response and step.model_response.name == "model_error":
         flags.append("model-error")
     if any(event.name == "protocol_violation" for event in step.protocol_events):
@@ -259,6 +292,13 @@ def _step_flags(step: TraceStep) -> tuple[str, ...]:
     if _step_interrupted(step):
         flags.append("incomplete")
     return tuple(flags)
+
+
+def _step_phase(step: TraceStep) -> str | None:
+    for event in (step.model_request, step.model_response, step.plan_decision):
+        if event is not None and isinstance(event.data.get("phase"), str):
+            return str(event.data["phase"])
+    return None
 
 
 def _step_interrupted(step: TraceStep) -> bool:

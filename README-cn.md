@@ -57,6 +57,10 @@ uv run yada --task-file issue.md --workspace /workspace --yes
 Yada 会打印每轮 DeepSeek 调用和工具执行，最后报告任务是否通过验证门槛。默认
 Trace 保存在目标仓库的 `.yada/runs/` 目录下。
 
+编辑前，模型必须选择 `direct_execute` 或由 Host 强制执行的 `red_green`
+流程。Red-Green 会在隔离 worktree 中观察失败的回归测试，冻结测试后只用显式
+证据启动全新的 Fix Session；两个阶段记录在同一份 Trace 和 HTML 报告中。
+
 陌生项目可能包含并执行任意代码。Yada 虽然提供了 Guardrail，但并不是完整的
 操作系统沙箱，运行这类项目仍可能危及系统安全。处理陌生项目时，请使用一次性
 VM 或容器。

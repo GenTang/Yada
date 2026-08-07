@@ -652,6 +652,22 @@ def _describe_event(event: dict[str, Any]) -> str:
         )
     if name in {"protocol_reminder", "protocol_violation"}:
         return f"{step_text}{name}"
+    if name in {
+        "session_start",
+        "session_end",
+        "strategy_selected",
+        "red_started",
+        "red_observed",
+        "test_frozen",
+        "fix_started",
+        "green_observed",
+        "regression_verified",
+        "finish_accepted",
+        "verification_invalidated",
+        "red_artifact_written",
+    }:
+        phase = data.get("phase")
+        return f"{step_text}{name} phase={phase or '-'}"
     if name == "run_end":
         return (
             f"run_end finished={data.get('finished')} steps={data.get('steps')} "

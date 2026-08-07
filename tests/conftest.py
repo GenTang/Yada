@@ -21,8 +21,14 @@ def git_workspace(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def tool_runner(git_workspace: Path) -> ToolRunner:
-    return ToolRunner(
+    runner = ToolRunner(
         git_workspace,
         approver=CommandApprover("allow"),
         editing_strategy="replace-first",
     )
+    selected = runner.execute(
+        "select_strategy",
+        {"strategy": "direct_execute", "reason": "low-level tool contract test"},
+    )
+    assert selected.data["ok"]
+    return runner

@@ -50,6 +50,7 @@ def apply_patch(
             recovery="Split the change into smaller patches.",
         )
     touched = _parse_patch_paths(context, patch)
+    context.workflow.authorize_mutation(touched)
     expected = _normalize_expected_files(context, expected_files)
     if set(expected) != set(touched):
         raise _patch_error(
@@ -109,6 +110,7 @@ def apply_patch(
     context.state.patch_count += 1
     context.state.touched_files.update(touched)
     context.state.verified_revision = -1
+    context.workflow.record_mutation(touched, context.state.revision)
 
     changed: list[dict[str, str]] = []
     for relative_path in sorted(touched):

@@ -26,15 +26,25 @@ def finish_task(context: ToolContext, summary: str) -> ToolExecution:
 
     if not isinstance(summary, str) or not summary.strip():
         raise ToolError("summary must be a non-empty string")
+    workflow_error = context.workflow.finish_error(context.state.revision)
+    if workflow_error is not None:
+        raise ToolError(
+            f"finish_task rejected: {workflow_error}",
+            error_code="verification_workflow_incomplete",
+        )
     if context.state.patch_count == 0:
         raise ToolError("finish_task rejected: no patch has been applied")
-    if context.state.verified_revision != context.state.revision:
+    if (
+        context.workflow.strategy is None
+        or context.workflow.strategy.value == "direct_execute"
+    ) and context.state.verified_revision != context.state.revision:
         raise ToolError(
             "finish_task rejected: run a successful test or build after the latest patch"
         )
     diff_check = _git_diff_check(context)
     if diff_check:
         raise ToolError(f"finish_task rejected by git diff --check: {diff_check}")
+    context.workflow.accept_finish(context.state.revision)
     return ToolExecution(
         {
             "ok": True,

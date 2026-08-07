@@ -38,7 +38,7 @@ uv run yada --task-file issue.md --workspace /path/to/repository
 | `--reasoning-effort high\|max` | Thinking effort. | `max` |
 | `--thinking` / `--no-thinking` | Enable or disable thinking. | Enabled |
 | `--editing-strategy patch-only\|replace-first` | Freeze the run-level editing policy and model-facing edit tools. | `replace-first` |
-| `--max-steps N` | Maximum model turns. | `30` |
+| `--max-steps N` | Maximum model turns across all sequential sessions. | `30` |
 | `--max-output-tokens N` | Maximum tokens requested per completion. | `16384` |
 | `--api-timeout SECONDS` | Timeout for one model request. | `300` |
 | `--command-timeout SECONDS` | Default repository-command timeout. | `120` |

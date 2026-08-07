@@ -1,7 +1,7 @@
 # Yada architecture
 
-Yada is a deliberately small DeepSeek-native coding harness: one model loop,
-six tools, an append-only conversation, checked patch application, and a
+Yada is a deliberately small DeepSeek-native coding harness: a Host-controlled
+model loop, a stable tool interface, checked patch application, and an explicit
 verification gate. This document describes the internal boundaries contributors
 must preserve.
 
@@ -37,6 +37,7 @@ run/cli.py
     │   │       ├── environments/commands.py
     │   │       └── tools/{search,read,replace,patch,command,finish}.py
     │   ├── models/base.py ← models/deepseek.py
+    │   ├── verification.py
     │   └── traces/jsonl.py ← traces/report.py
     └── evals/cli.py
         └── evals/runner.py
@@ -73,9 +74,11 @@ stable system prompt + tool schemas
        repeat or verified finish_task
 ```
 
-`Agent` in `agents/default.py` owns the append-only message list, step limit,
-usage accumulation, and top-level trace events. It does not implement tool
-policy or workspace mutation.
+`Agent` in `agents/default.py` owns the step limit, usage accumulation, top-level
+trace events, and sequential session boundary. A direct run keeps one append-only
+message list. A Red-Green run ends the Red session after the test is frozen and
+constructs a fresh Fix message list from explicit evidence only. It does not
+implement file permission or verification policy.
 
 The DeepSeek adapter keeps `reasoning_content` on assistant tool-call messages.
 The whole assistant message is appended before tool results, so subsequent model
@@ -95,15 +98,17 @@ without weakening the workspace and tool contracts.
 
 ## Tool system
 
-Yada exposes six tools:
+Yada exposes a stable model-facing tool catalog:
 
 | Tool | Responsibility |
 | --- | --- |
+| `select_strategy` | Freeze `red_green` or `direct_execute` before editing. |
 | `search_code` | Search repository text with ripgrep and a Python fallback. |
 | `read_file` | Return bounded, numbered text plus a SHA-256 content hash. |
 | `replace_text` | Apply exact unique replacements to existing UTF-8 files. |
 | `apply_patch` | Validate and apply a Git-style unified diff. |
 | `run_command` | Run an approved argv array and return bounded structured output. |
+| `submit_red_test` | Host-observe and freeze an exact failing target test. |
 | `finish_task` | End only after verification of the latest revision. |
 
 `ToolRunner` composes shared workspace, approval, output-limit, and verification
@@ -157,6 +162,16 @@ run when:
 - `git diff --check` fails.
 
 Thus a passing test before the final edit cannot satisfy completion.
+
+Every run starts in `awaiting_strategy`. Read-only tools remain available, while
+file mutations are rejected until `select_strategy` succeeds. `direct_execute`
+then preserves the behavior above. `red_green` creates a disposable Git worktree
+for the Red session, permits test-file mutations only, and requires a valid
+Host-classified failure from `submit_red_test`. A valid test patch is
+content-addressed, materialized into the canonical workspace, and immutable in
+the fresh Fix session. The exact frozen command must become Green, a distinct
+regression command must pass, and both observations must belong to the latest
+production revision. See [Red-Green verification](red-green-verification.md).
 
 ## Trace architecture
 
@@ -225,7 +240,8 @@ load, workspace, grading, cache, and artifact sequence.
 
 ## Core invariants
 
-1. Editing strategy, system prompt, and tool schemas stay stable during a run.
+1. Editing strategy and tool schemas stay stable during a run; each session's
+   system prompt stays stable for that session.
 2. At most one editing operation executes from one Assistant turn.
 3. Conversation messages are append-only.
 4. DeepSeek reasoning is preserved across tool-call turns.
@@ -233,9 +249,12 @@ load, workspace, grading, cache, and artifact sequence.
 6. Existing patch targets must match their last-read SHA-256.
 7. Every patch invalidates previous verification.
 8. `finish_task` requires verification of the latest revision.
-9. Trace events are append-only and self-correlating.
-10. Benchmark grading happens outside the agent's tool boundary.
-11. Hidden grading inputs never enter the official Agent command container.
+9. Verification strategy is selected once and cannot change after selection.
+10. Red production edits and Fix edits to frozen tests fail before mutation.
+11. A Fix session receives frozen evidence, never the Red conversation.
+12. Trace events are append-only and self-correlating across both sessions.
+13. Benchmark grading happens outside the agent's tool boundary.
+14. Hidden grading inputs never enter the official Agent command container.
 
 ## Security boundary
 

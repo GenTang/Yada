@@ -5,6 +5,7 @@ from yada.environments.commands import (
     DockerCommandExecutor,
     LocalCommandExecutor,
 )
+from yada.environments.verification import VerificationWorkspaces
 from yada.environments.workspace import Workspace
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     "DockerCommandExecutor",
     "LocalCommandExecutor",
     "Workspace",
+    "VerificationWorkspaces",
 ]

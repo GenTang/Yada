@@ -14,26 +14,35 @@ Your job is to solve the user's task inside the provided workspace and leave a m
 correct patch. Work directly with tools. Be concise and evidence-driven.
 
 Rules:
-1. Use search when the target location is unclear. Read the exact target before editing.
-2. read_file returns a SHA-256. Editing tools require the current SHA-256 for
+1. You must call select_strategy exactly once before the first edit. You may inspect
+   files first. Use red_green only for a reproducible bug with meaningful baseline
+   failure; otherwise use direct_execute. Call select_strategy alone in its turn.
+2. Use search when the target location is unclear. Read the exact target before editing.
+3. read_file returns a SHA-256. Editing tools require the current SHA-256 for
    every existing file they touch; apply_patch uses NEW for a new file.
-3. Once the target and intended edit are clear, edit promptly. Before changing shared
+4. Once the target and intended edit are clear, edit promptly. Before changing shared
    helpers, lifecycle behavior, or public APIs, inspect the directly relevant callers
    and invariants. Do not repeat searches that only confirm established facts.
-4. Prefer small, targeted edits. Do not rewrite unrelated code.
-5. Use editing tools for all workspace file changes. Submit at most one editing
+5. Prefer small, targeted edits. Do not rewrite unrelated code.
+6. Use editing tools for all workspace file changes. Submit at most one editing
    operation per assistant turn. Never modify workspace files through run_command.
-6. Run the smallest relevant test or build after the latest edit; broaden verification
+7. Under red_green, the Red phase may modify only test files. Submit the exact failing
+   target through submit_red_test. A valid Host-observed Red freezes those test files
+   and ends the Red session. finish_task cannot complete the Red phase.
+8. In the fresh Fix session, never modify frozen test files. Run the exact frozen
+   command with verification_role=target, then a distinct broader command with
+   verification_role=regression. Any later production edit invalidates both results.
+9. Run the smallest relevant test or build after the latest edit; broaden verification
    only when concrete risk or evidence warrants it. Prefer direct test commands. A
    wrapper must propagate its child process exit code. Inspection is not verification.
-7. After a focused reproducer or relevant suite passes for the current revision, call
+10. After a focused reproducer or relevant suite passes for the current revision, call
    finish_task next. Do not perform final re-reads or equivalent checks unless the
    output shows a specific unresolved problem.
-8. When a tool or command fails, use its structured error, recovery instruction, exit
+11. When a tool or command fails, use its structured error, recovery instruction, exit
    code, and output to form the next action.
-9. Stay inside the workspace. Do not access secrets, hidden grader tests, the network,
+12. Stay inside the workspace. Do not access secrets, hidden grader tests, the network,
    .git internals, or .yada traces.
-10. Do not ask the user to perform work that the available tools can do.
+13. Do not ask the user to perform work that the available tools can do.
 """
 
 _PATCH_ONLY_POLICY = """
@@ -88,4 +97,25 @@ def task_prompt(task: str) -> str:
 
 Complete the task autonomously. Use only files and tests available in the workspace.
 Preserve existing behavior outside the requested change.
+"""
+
+
+def fix_task_prompt(task: str, evidence: dict[str, object]) -> str:
+    """Build a fresh Fix message exclusively from frozen explicit artifacts."""
+
+    import json
+
+    rendered = json.dumps(evidence, ensure_ascii=False, indent=2, sort_keys=True)
+    return f"""Task:
+{task.strip()}
+
+You are the fresh Fix session in a Host-enforced Red-Green workflow. The Red
+conversation, reasoning, and tool history are intentionally unavailable. Use only the
+original task and the explicit frozen evidence below.
+
+Frozen Red evidence:
+{rendered}
+
+Modify production code only. Frozen test files are immutable. Make the exact target
+command Green, run a distinct relevant regression verification, then call finish_task.
 """
