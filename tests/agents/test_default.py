@@ -266,34 +266,49 @@ def test_strategy_prompts_are_explicit_and_stable() -> None:
     patch_planner = Planner("patch-only")
     replace_planner = Planner("replace-first")
 
-    patch_prompt = patch_planner.initial_messages("Fix it")[0]["content"]
-    replace_prompt = replace_planner.initial_messages("Fix it")[0]["content"]
+    selection_prompt = replace_planner.initial_messages("Fix it")[0]["content"]
+    red_prompt = replace_planner.red_messages("Fix it", "reproducer")[0]["content"]
+    fix_prompt = replace_planner.fix_messages("Fix it", {"target": "test_x"})[0][
+        "content"
+    ]
+    direct_prompt = replace_planner.direct_messages("Fix it", "mechanical")[0][
+        "content"
+    ]
+    patch_prompt = patch_planner.red_messages("Fix it", "reproducer")[0]["content"]
 
-    assert "Use search when the target location is unclear" in replace_prompt
-    assert "Never modify workspace files" in replace_prompt
+    assert "Current phase: Strategy Selection" in selection_prompt
+    assert "absence of a\n  pre-existing failing test is never" in selection_prompt
+    assert "supplied reproducer" in selection_prompt
+    assert "Do not edit files" in selection_prompt
+    assert "Editing strategy:" not in selection_prompt
+    assert "Current phase: Red" in red_prompt
+    assert "Modify test files only" in red_prompt
+    assert "bounded stdout/stderr" in red_prompt
+    assert "Current phase: Fix" in fix_prompt
+    assert "Frozen test files are immutable" in fix_prompt
+    assert "verification_role=regression" in fix_prompt
+    assert "Current phase: Direct Execute" in direct_prompt
+    assert "Do not call select_strategy" in direct_prompt
+    assert "Use search when the target location is unclear" in red_prompt
+    assert "Never modify workspace files" in red_prompt
     assert "Submit at most one editing" in patch_prompt
-    assert "Submit at most one editing" in replace_prompt
-    assert "inspect the directly relevant callers" in replace_prompt
-    assert "wrapper must propagate its child process exit code" in replace_prompt
-    assert "finish_task next." in replace_prompt
-    assert "Do not perform final re-reads" in replace_prompt
-    assert "Tool strategy:" not in patch_prompt
-    assert "Tool strategy:" not in replace_prompt
+    assert "Submit at most one editing" in red_prompt
+    assert "inspect the directly relevant callers" in red_prompt
     assert "Editing strategy: patch-only" in patch_prompt
     assert "Use apply_patch for every workspace edit" in patch_prompt
-    assert "follow the structured recovery instruction" in patch_prompt
-    assert "Editing strategy: replace-first" in replace_prompt
-    assert "Prefer replace_text when the change fits one localized" in replace_prompt
-    assert "multiple separated" in replace_prompt
-    assert "smallest exact old_text that matches once" in replace_prompt
-    assert "Once the target and intended edit are clear" in replace_prompt
-    assert "Do not repeat" in replace_prompt
-    assert "Retry or switch tools" in replace_prompt
-    assert replace_prompt == replace_planner.initial_messages("Fix it")[0]["content"]
+    assert "Editing strategy: replace-first" in red_prompt
+    assert "Prefer replace_text when the change fits one localized" in red_prompt
+    assert "multiple separated" in red_prompt
+    assert "smallest exact old_text that matches once" in red_prompt
+    assert "Once the target and intended edit are clear" in red_prompt
+    assert "Do not repeat" in red_prompt
+    assert "Retry or switch tools" in red_prompt
+    assert selection_prompt == replace_planner.initial_messages("Fix it")[0]["content"]
 
     task_message = replace_planner.initial_messages("Fix it")[1]["content"]
     assert task_message.startswith("Task:\nFix it\n")
-    assert "Use only files and tests available in the workspace" in task_message
+    assert "Decide the verification strategy" in task_message
+    assert "Do not begin implementation" in task_message
     assert "Workspace: the tool root" not in task_message
     assert "hidden tests" not in task_message
 
@@ -509,3 +524,18 @@ def test_planner_escalates_repeated_text_only_turns() -> None:
     assert plan.consecutive_text_turns == 3
     assert plan.display_text == "I am done."
     assert "final reminder" in (plan.reminder or "")
+
+
+def test_planner_text_reminders_follow_the_current_phase() -> None:
+    planner = Planner()
+    message = {"role": "assistant", "content": "done"}
+
+    selection = planner.plan(
+        message, consecutive_text_turns=0, phase="awaiting_strategy"
+    )
+    red = planner.plan(message, consecutive_text_turns=0, phase="red")
+    fix = planner.plan(message, consecutive_text_turns=0, phase="fix")
+
+    assert "select_strategy alone" in (selection.reminder or "")
+    assert "submit_red_test" in (red.reminder or "")
+    assert "finish_task" in (fix.reminder or "")

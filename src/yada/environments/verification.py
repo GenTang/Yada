@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 import tempfile
 from contextlib import contextmanager
@@ -19,6 +20,8 @@ class VerificationWorkspaces:
         self.primary = primary
         self._red_temp_root: Path | None = None
         self._red_root: Path | None = None
+        self._runtime_snapshot_temp_root: Path | None = None
+        self._runtime_snapshot_root: Path | None = None
 
     def start_red(self, baseline: str) -> Workspace:
         """Create a persistent Red staging worktree at the clean baseline."""
@@ -28,7 +31,16 @@ class VerificationWorkspaces:
                 "Red workspace has already been created",
                 error_code="red_workspace_failed",
             )
-        temp_root, red_root = self._create_worktree("yada-red-", baseline)
+        # Freeze the complete prepared runtime view once. Red and every later Fix
+        # command are materialized from this same immutable snapshot, so generated
+        # files, empty directories, symlinks, and permissions match the canonical
+        # workspace as it existed at strategy-selection time.
+        self._create_runtime_snapshot()
+        try:
+            temp_root, red_root = self._create_worktree("yada-red-", baseline)
+        except ToolError:
+            self._close_runtime_snapshot()
+            raise
         self._red_temp_root = temp_root
         self._red_root = red_root
         return Workspace(red_root)
@@ -126,6 +138,7 @@ class VerificationWorkspaces:
 
     def close(self) -> None:
         self.close_red()
+        self._close_runtime_snapshot()
 
     def _create_worktree(self, prefix: str, baseline: str) -> tuple[Path, Path]:
         temp_root = Path(tempfile.mkdtemp(prefix=prefix))
@@ -141,7 +154,67 @@ class VerificationWorkspaces:
                 error_code="verification_workspace_failed",
                 details={"stderr": result.stderr[-1000:]},
             )
+        try:
+            self._materialize_runtime_snapshot(worktree)
+        except ToolError:
+            self._remove_worktree(worktree, temp_root)
+            raise
         return temp_root, worktree
+
+    def _create_runtime_snapshot(self) -> None:
+        """Copy the canonical runtime tree once, excluding Host-owned state."""
+
+        if self._runtime_snapshot_root is not None:
+            raise ToolError(
+                "runtime snapshot has already been created",
+                error_code="verification_workspace_failed",
+            )
+        temp_root = Path(tempfile.mkdtemp(prefix="yada-runtime-snapshot-"))
+        snapshot = temp_root / "workspace"
+        try:
+            shutil.copytree(
+                self.primary.root,
+                snapshot,
+                symlinks=True,
+                ignore=_ignore_host_state,
+            )
+        except OSError as exc:
+            shutil.rmtree(temp_root, ignore_errors=True)
+            raise ToolError(
+                "could not snapshot the prepared runtime workspace",
+                error_code="verification_workspace_failed",
+                details={"error": str(exc)},
+            ) from exc
+        self._runtime_snapshot_temp_root = temp_root
+        self._runtime_snapshot_root = snapshot
+
+    def _materialize_runtime_snapshot(self, worktree: Path) -> None:
+        """Replace Git-populated files with the frozen prepared runtime tree."""
+
+        snapshot = self._runtime_snapshot_root
+        if snapshot is None:
+            raise ToolError(
+                "runtime snapshot is unavailable",
+                error_code="verification_workspace_failed",
+            )
+        try:
+            for child in worktree.iterdir():
+                if child.name == ".git":
+                    continue
+                _remove_path(child)
+            shutil.copytree(snapshot, worktree, symlinks=True, dirs_exist_ok=True)
+        except OSError as exc:
+            raise ToolError(
+                "could not materialize the prepared runtime snapshot",
+                error_code="verification_workspace_failed",
+                details={"error": str(exc)},
+            ) from exc
+
+    def _close_runtime_snapshot(self) -> None:
+        if self._runtime_snapshot_temp_root is not None:
+            shutil.rmtree(self._runtime_snapshot_temp_root, ignore_errors=True)
+        self._runtime_snapshot_temp_root = None
+        self._runtime_snapshot_root = None
 
     def _remove_worktree(self, worktree: Path, temp_root: Path) -> None:
         _run(
@@ -191,6 +264,19 @@ def _run(
         )
     except (OSError, subprocess.SubprocessError) as exc:
         return subprocess.CompletedProcess(argv, 1, "", str(exc))
+
+
+def _ignore_host_state(_: str, names: list[str]) -> set[str]:
+    """Exclude repository and Yada control state from runtime snapshots."""
+
+    return {name for name in names if name in {".git", ".yada"}}
+
+
+def _remove_path(path: Path) -> None:
+    if path.is_symlink() or not path.is_dir():
+        path.unlink()
+    else:
+        shutil.rmtree(path)
 
 
 __all__ = ["VerificationWorkspaces"]

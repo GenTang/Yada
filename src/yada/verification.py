@@ -63,6 +63,7 @@ class FrozenTestEvidence:
     red_exit_code: int
     red_stdout: str
     red_stderr: str
+    red_failure: dict[str, Any]
 
     def fix_context(self) -> dict[str, Any]:
         """Return only explicit artifacts that may enter the Fix conversation."""
@@ -78,6 +79,7 @@ class FrozenTestEvidence:
             "red_exit_code": self.red_exit_code,
             "red_stdout": self.red_stdout,
             "red_stderr": self.red_stderr,
+            "red_failure": self.red_failure,
         }
 
 
@@ -264,16 +266,23 @@ class VerificationWorkflow:
                 details=observed,
             )
 
+        test_paths = tuple(sorted(set(changed) | self.red_test_paths))
         status, explanation = classify_red_observation(
             target=target,
             argv=argv,
             result=command_result,
+            test_paths=test_paths,
+        )
+        red_failure = red_observation_details(
+            result=command_result,
+            test_paths=test_paths,
         )
         observed = {
             "status": status,
             "target": target,
             "exit_code": command_result.get("exit_code"),
             "explanation": explanation,
+            **red_failure,
         }
         self._emit("red_observed", observed)
         if status != "valid":
@@ -283,7 +292,6 @@ class VerificationWorkflow:
                 details=observed,
             )
 
-        test_paths = tuple(sorted(set(changed) | self.red_test_paths))
         patch = _collect_patch(self.workspace, test_paths)
         if not patch:
             raise ToolError(
@@ -305,6 +313,7 @@ class VerificationWorkflow:
             red_exit_code=int(command_result["exit_code"]),
             red_stdout=str(command_result.get("stdout") or ""),
             red_stderr=str(command_result.get("stderr") or ""),
+            red_failure=red_failure,
         )
         self.frozen_test = evidence
         self.phase = VerificationPhase.TEST_FROZEN
@@ -527,9 +536,13 @@ def normalize_cwd(cwd: str) -> str:
 
 
 def classify_red_observation(
-    *, target: str, argv: list[str], result: dict[str, Any]
+    *,
+    target: str,
+    argv: list[str],
+    result: dict[str, Any],
+    test_paths: tuple[str, ...] = (),
 ) -> tuple[str, str]:
-    """Conservatively accept only an executed test failure, never infrastructure."""
+    """Accept only a structured, behavioral failure of the exact pytest target."""
 
     if not isinstance(target, str) or not target.strip():
         return "invalid_target_test", "target test identity is empty"
@@ -543,42 +556,121 @@ def classify_red_observation(
     if result.get("timed_out"):
         return "red_timeout", "test command timed out"
     exit_code = result.get("exit_code")
-    combined = f"{result.get('stdout', '')}\n{result.get('stderr', '')}".casefold()
-    if exit_code == 0:
-        if "skipped" in combined:
-            return "red_skipped", "target was skipped instead of failing"
-        return "red_not_failed", "target passed on baseline production code"
     if exit_code is None:
         return "red_infrastructure_error", "command produced no exit code"
-    invalid_markers = {
-        "syntaxerror": ("red_syntax_error", "syntax error"),
-        "modulenotfounderror": ("red_dependency_error", "missing dependency"),
-        "no module named": ("red_dependency_error", "missing dependency"),
-        "importerror": ("red_import_error", "import error"),
-        "error collecting": ("red_collection_error", "collection error"),
-        "errors during collection": ("red_collection_error", "collection error"),
-        "collected 0 items": ("target_not_collected", "no target test collected"),
-        "no tests ran": ("target_not_collected", "no target test collected"),
-        "no tests collected": ("target_not_collected", "no target test collected"),
-        "internalerror": ("red_infrastructure_error", "test runner internal error"),
-    }
-    for marker, (status, explanation) in invalid_markers.items():
-        if marker in combined:
-            return status, explanation
-    if exit_code != 1:
+    if exit_code in {3, 4}:
         return (
             "red_infrastructure_error",
-            f"exit code {exit_code} is not a recognized test-failure status",
+            f"pytest exited with infrastructure status {exit_code}",
         )
-    if not _pytest_target_failed(target, combined):
+
+    observation = result.get("red_observation")
+    if not isinstance(observation, dict) or observation.get("status") != "ok":
+        observer_status = (
+            observation.get("status") if isinstance(observation, dict) else "missing"
+        )
+        return (
+            "red_observer_error",
+            f"structured pytest observer report is {observer_status}",
+        )
+    events = observation.get("events")
+    if not isinstance(events, list):
+        return "red_observer_error", "structured pytest observer events are invalid"
+    typed_events = [event for event in events if isinstance(event, dict)]
+    if _normalize_nodeid(str(observation.get("target") or "")) != _normalize_nodeid(
+        target
+    ):
+        return "red_observer_error", "structured pytest observer target is inconsistent"
+    target_events = [
+        event
+        for event in typed_events
+        if event.get("event") in {"target_collected", "target_report"}
+    ]
+    if any(
+        _normalize_nodeid(str(event.get("nodeid") or "")) != _normalize_nodeid(target)
+        for event in target_events
+    ):
+        return (
+            "red_observer_error",
+            "structured pytest observer node id is inconsistent",
+        )
+    if any(event.get("event") == "internal_error" for event in typed_events):
+        return "red_infrastructure_error", "pytest reported an internal error"
+    session_finishes = [
+        event for event in typed_events if event.get("event") == "session_finish"
+    ]
+    if not session_finishes:
+        return (
+            "red_observer_error",
+            "structured pytest observer report is incomplete",
+        )
+    if exit_code not in {event.get("exitstatus") for event in session_finishes}:
+        return (
+            "red_observer_error",
+            "pytest process and structured observer exit statuses disagree",
+        )
+
+    reports = [event for event in typed_events if event.get("event") == "target_report"]
+    collected = any(
+        event.get("event") == "target_collected" for event in typed_events
+    ) or bool(reports)
+    collection_errors = [
+        event for event in typed_events if event.get("event") == "collection_error"
+    ]
+    if not collected:
+        if collection_errors:
+            return _classify_collection_error(collection_errors)
+        if exit_code == 2:
+            return "red_infrastructure_error", "pytest was interrupted"
+        return "target_not_collected", "the outer pytest session did not collect target"
+    if not reports:
+        return "target_not_executed", "target was collected but did not execute"
+
+    phase_counts: dict[str, int] = {}
+    for report in reports:
+        when = str(report.get("when") or "unknown")
+        phase_counts[when] = phase_counts.get(when, 0) + 1
+    if any(count > 1 for count in phase_counts.values()):
+        return (
+            "red_ambiguous_result",
+            "target produced repeated outcomes and is not a stable Red observation",
+        )
+    if any(report.get("wasxfail") for report in reports):
+        return "red_skipped", "target was xfailed instead of failing normally"
+
+    failed_reports = [report for report in reports if report.get("outcome") == "failed"]
+    if len(failed_reports) > 1:
+        return (
+            "red_ambiguous_result",
+            "target failed in multiple pytest phases",
+        )
+    if failed_reports:
+        if exit_code != 1:
+            return (
+                "red_infrastructure_error",
+                f"exit code {exit_code} is not a normal pytest failure status",
+            )
+        metadata = _failure_metadata(failed_reports[0], test_paths)
+        if metadata["failure_kind"] in {
+            "behavioral_assertion",
+            "production_exception",
+        }:
+            return "valid", "target executed and failed behaviorally"
+        return (
+            "red_test_error",
+            "target failed because of an uncaught error in test code",
+        )
+
+    if any(report.get("outcome") == "skipped" for report in reports):
+        return "red_skipped", "target was skipped instead of failing"
+    if any(report.get("outcome") == "passed" for report in reports):
+        if exit_code == 0:
+            return "red_not_failed", "target passed on baseline production code"
         return (
             "target_not_failed",
-            "pytest output does not identify the submitted target as failed",
+            "another test or pytest phase failed, not the submitted target",
         )
-    executed_markers = ("failed", "failure", "assert", "error")
-    if not any(marker in combined for marker in executed_markers):
-        return "target_not_executed", "output does not prove the target executed"
-    return "valid", "target was collected, executed, and failed behaviorally"
+    return "target_not_executed", "target produced no recognized pytest outcome"
 
 
 def _is_pytest_command(argv: list[str]) -> bool:
@@ -591,23 +683,78 @@ def _is_pytest_command(argv: list[str]) -> bool:
     return len(argv) >= 3 and argv[:3] == ["uv", "run", "pytest"]
 
 
-def _pytest_target_failed(target: str, output: str) -> bool:
-    """Require pytest to attribute failure to the exact submitted node id."""
+def _normalize_nodeid(value: str) -> str:
+    normalized = value.replace("\\", "/")
+    return normalized[2:] if normalized.startswith("./") else normalized
 
-    normalized_target = target.removeprefix("./").replace("\\", "/").casefold()
-    ansi_escape = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
-    for raw_line in output.splitlines():
-        line = ansi_escape.sub("", raw_line).strip().replace("\\", "/")
-        folded = line.casefold()
-        if folded.startswith(f"failed {normalized_target}"):
-            remainder = folded[len("failed ") + len(normalized_target) :]
-            if not remainder or remainder[0].isspace():
-                return True
-        if folded.startswith(normalized_target):
-            remainder = folded[len(normalized_target) :].lstrip()
-            if remainder == "failed" or remainder.startswith("failed "):
-                return True
-    return False
+
+def red_observation_details(
+    *, result: dict[str, Any], test_paths: tuple[str, ...]
+) -> dict[str, Any]:
+    """Return bounded failure metadata for traces and the fresh Fix context."""
+
+    observation = result.get("red_observation")
+    if not isinstance(observation, dict):
+        return {}
+    events = observation.get("events")
+    if not isinstance(events, list):
+        return {}
+    failed = [
+        event
+        for event in events
+        if isinstance(event, dict)
+        and event.get("event") == "target_report"
+        and event.get("outcome") == "failed"
+    ]
+    return _failure_metadata(failed[0], test_paths) if len(failed) == 1 else {}
+
+
+def _failure_metadata(
+    report: dict[str, Any], test_paths: tuple[str, ...]
+) -> dict[str, Any]:
+    exception_type = str(report.get("exception_type") or "")
+    exception_name = exception_type.rsplit(".", 1)[-1]
+    raw_paths = report.get("traceback_paths")
+    traceback_paths = (
+        [str(path).replace("\\", "/") for path in raw_paths if isinstance(path, str)]
+        if isinstance(raw_paths, list)
+        else []
+    )
+    normalized_tests = {path.removeprefix("./") for path in test_paths}
+    production_paths = [
+        path
+        for path in traceback_paths
+        if path.removeprefix("./") not in normalized_tests and not is_test_path(path)
+    ]
+    if exception_name in {"AssertionError", "Failed"}:
+        failure_kind = "behavioral_assertion"
+        failure_origin = "test_assertion"
+    elif production_paths:
+        failure_kind = "production_exception"
+        failure_origin = production_paths[-1]
+    else:
+        failure_kind = "test_error"
+        failure_origin = traceback_paths[-1] if traceback_paths else "unknown"
+    return {
+        "failure_kind": failure_kind,
+        "failure_origin": failure_origin,
+        "exception_type": exception_type or None,
+        "failure_phase": report.get("when"),
+    }
+
+
+def _classify_collection_error(
+    errors: list[dict[str, Any]],
+) -> tuple[str, str]:
+    combined = "\n".join(str(error.get("message") or "") for error in errors)
+    lowered = combined.casefold()
+    if "syntaxerror" in lowered:
+        return "red_syntax_error", "target could not be collected because of syntax"
+    if "modulenotfounderror" in lowered or "no module named" in lowered:
+        return "red_dependency_error", "target collection is missing a dependency"
+    if "importerror" in lowered:
+        return "red_import_error", "target collection failed with an import error"
+    return "red_collection_error", "target collection failed"
 
 
 def _git_head(workspace: Path) -> str | None:

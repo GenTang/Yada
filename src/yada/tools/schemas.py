@@ -21,8 +21,10 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                         "type": "string",
                         "enum": ["red_green", "direct_execute"],
                         "description": (
-                            "Use red_green for a reproducible bug; use "
-                            "direct_execute when meaningful baseline failure is inapplicable."
+                            "Use red_green when a focused test can be authored to fail "
+                            "on baseline behavior, even if no failing test exists yet. "
+                            "Use direct_execute only when meaningful baseline failure "
+                            "is inapplicable."
                         ),
                     },
                     "reason": {

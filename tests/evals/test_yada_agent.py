@@ -85,9 +85,8 @@ def test_yada_eval_trace_includes_case_and_workspace_provenance(
     assert reconstruct_model_request(events, 1)["model"] == "fake-deepseek"
     assistant = next(event for event in events if event["event"] == "assistant")
     assert assistant["data"]["message"]["reasoning_content"] == "debug reasoning"
-    assert any(
-        schema["function"]["name"] == "replace_text" for schema in client.seen_tools[0]
-    )
+    initial_tool_names = {schema["function"]["name"] for schema in client.seen_tools[0]}
+    assert initial_tool_names == {"select_strategy", "search_code", "read_file"}
     assert result.details["editing_strategy"] == "replace-first"
     metrics = result.details["editing_metrics"]
     assert metrics["first_edit_attempt_success"] is None

@@ -14,6 +14,8 @@ from typing import Protocol
 from yada.exceptions import ToolError
 from yada.utils.text import timeout_text
 
+WORKSPACE_PATH_PLACEHOLDER = "{YADA_WORKSPACE}"
+
 
 @dataclass(frozen=True)
 class CommandResult:
@@ -64,7 +66,9 @@ class LocalCommandExecutor:
         timeout_seconds: int,
     ) -> CommandResult:
         env = _sanitized_values(os.environ)
-        env.update(_sanitized_values(environment))
+        env.update(
+            expand_workspace_environment(environment, workspace.resolve().as_posix())
+        )
         env["YADA_WORKSPACE"] = str(workspace)
         try:
             result = subprocess.run(
@@ -136,7 +140,10 @@ class DockerCommandExecutor:
             "--env",
             f"YADA_WORKSPACE={self.container_workspace}",
         ]
-        for key, value in sorted(_sanitized_values(environment).items()):
+        expanded_environment = expand_workspace_environment(
+            environment, self.container_workspace
+        )
+        for key, value in sorted(expanded_environment.items()):
             command.extend(["--env", f"{key}={value}"])
         script = (
             "if [ -f /opt/miniconda3/etc/profile.d/conda.sh ]; then "
@@ -251,4 +258,15 @@ def _sanitized_values(values: Mapping[str, str]) -> dict[str, str]:
         str(key): str(value)
         for key, value in values.items()
         if not any(marker in str(key).upper() for marker in secret_markers)
+    }
+
+
+def expand_workspace_environment(
+    values: Mapping[str, str], workspace: str
+) -> dict[str, str]:
+    """Sanitize environment values and resolve Host-owned workspace placeholders."""
+
+    return {
+        key: value.replace(WORKSPACE_PATH_PLACEHOLDER, workspace)
+        for key, value in _sanitized_values(values).items()
     }

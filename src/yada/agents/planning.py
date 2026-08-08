@@ -11,7 +11,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from yada.agents.prompts import fix_task_prompt, system_prompt, task_prompt
+from yada.agents.prompts import (
+    direct_task_prompt,
+    fix_task_prompt,
+    red_task_prompt,
+    system_prompt,
+    task_prompt,
+)
 from yada.editing import (
     DEFAULT_EDITING_STRATEGY,
     EditingStrategy,
@@ -56,7 +62,6 @@ class Planner:
         editing_strategy: EditingStrategy | str = DEFAULT_EDITING_STRATEGY,
     ) -> None:
         self.editing_strategy = parse_editing_strategy(editing_strategy)
-        self._system_prompt = system_prompt(self.editing_strategy)
 
     def initial_messages(self, task: str) -> list[dict[str, Any]]:
         """Build the stable message prefix for a user task.
@@ -74,8 +79,37 @@ class Planner:
         if not task.strip():
             raise ValueError("task must not be empty")
         return [
-            {"role": "system", "content": self._system_prompt},
+            {
+                "role": "system",
+                "content": system_prompt(self.editing_strategy, phase="selection"),
+            },
             {"role": "user", "content": task_prompt(task)},
+        ]
+
+    def red_messages(self, task: str, reason: str) -> list[dict[str, Any]]:
+        """Create a fresh test-only Red context after strategy selection."""
+
+        if not task.strip() or not reason.strip():
+            raise ValueError("task and strategy reason must not be empty")
+        return [
+            {
+                "role": "system",
+                "content": system_prompt(self.editing_strategy, phase="red"),
+            },
+            {"role": "user", "content": red_task_prompt(task, reason)},
+        ]
+
+    def direct_messages(self, task: str, reason: str) -> list[dict[str, Any]]:
+        """Create a fresh Direct Execute context after strategy selection."""
+
+        if not task.strip() or not reason.strip():
+            raise ValueError("task and strategy reason must not be empty")
+        return [
+            {
+                "role": "system",
+                "content": system_prompt(self.editing_strategy, phase="direct"),
+            },
+            {"role": "user", "content": direct_task_prompt(task, reason)},
         ]
 
     def fix_messages(
@@ -88,11 +122,7 @@ class Planner:
         return [
             {
                 "role": "system",
-                "content": (
-                    self._system_prompt
-                    + "\nFix session override: red_green is already selected and "
-                    "irreversible. Do not call select_strategy or submit_red_test.\n"
-                ),
+                "content": system_prompt(self.editing_strategy, phase="fix"),
             },
             {"role": "user", "content": fix_task_prompt(task, evidence)},
         ]
@@ -102,6 +132,7 @@ class Planner:
         assistant_message: dict[str, Any],
         *,
         consecutive_text_turns: int,
+        phase: str = "direct",
     ) -> StepPlan:
         """Plan the next action from a single assistant message.
 
@@ -118,11 +149,23 @@ class Planner:
         tool_calls = tuple(assistant_message.get("tool_calls") or ())
         if not tool_calls:
             text_turns = consecutive_text_turns + 1
-            reminder = (
-                "Continue working with tools. You must call the finish_task tool after "
-                "a patch and a successful test/build; a text-only response does not "
-                "complete the task."
-            )
+            if phase == "awaiting_strategy":
+                reminder = (
+                    "Continue with the visible inspection tools, then call "
+                    "select_strategy alone; a text-only response does not complete "
+                    "strategy selection."
+                )
+            elif phase == "red":
+                reminder = (
+                    "Continue with test-only tools and call submit_red_test with the "
+                    "exact failing target; a text-only response cannot complete Red."
+                )
+            else:
+                reminder = (
+                    "Continue working with tools. You must call the finish_task tool "
+                    "after a patch and successful verification; a text-only response "
+                    "does not complete the task."
+                )
             if text_turns >= 3:
                 reminder += (
                     " This is your final reminder to use the required tool protocol."

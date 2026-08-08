@@ -31,6 +31,7 @@ def test_docker_executor_mounts_workspace_and_routes_command(
         tmp_path,
         approver=CommandApprover("allow"),
         command_executor=executor,
+        command_environment={"YADA_TEST_PATH": "{YADA_WORKSPACE}/observer"},
     )
     selected = runner.execute(
         "select_strategy",
@@ -62,6 +63,7 @@ def test_docker_executor_mounts_workspace_and_routes_command(
     assert execute[:2] == ["docker", "exec"]
     assert "conda activate testbed" in execute[-1]
     assert "exec python -c 'print('" in execute[-1]
+    assert "YADA_TEST_PATH=/testbed/observer" in execute
     assert calls[-1][1:3] == ["rm", "--force"]
 
 

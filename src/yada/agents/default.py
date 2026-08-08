@@ -97,7 +97,21 @@ class Agent:
             DeepSeekAPIError: Propagated from the configured completion client.
         """
 
-        messages = self.planner.initial_messages(task)
+        initial_phase = self.tools.context.workflow.phase
+        strategy_reason = self.tools.context.workflow.reason or "preselected strategy"
+        if initial_phase.value == "awaiting_strategy":
+            messages = self.planner.initial_messages(task)
+            session_id = "selection"
+        elif initial_phase.value == "red":
+            messages = self.planner.red_messages(task, strategy_reason)
+            session_id = "red"
+        elif initial_phase.value == "direct":
+            messages = self.planner.direct_messages(task, strategy_reason)
+            session_id = "direct"
+        else:
+            raise RuntimeError(
+                f"agent cannot start in verification phase {initial_phase.value}"
+            )
         total_usage: dict[str, int] = {}
         self.trace.write(
             "run_start",
@@ -119,7 +133,6 @@ class Agent:
             },
         )
 
-        session_id = "primary"
         session_step = 0
         self.trace.write(
             "session_start",
@@ -127,6 +140,7 @@ class Agent:
                 "session_id": session_id,
                 "phase": self.tools.context.workflow.phase.value,
                 "start_step": 1,
+                "tool_names": list(self.tools.visible_tool_names),
             },
         )
 
@@ -208,6 +222,7 @@ class Agent:
             plan = self.planner.plan(
                 assistant_message,
                 consecutive_text_turns=consecutive_text_turns,
+                phase=phase,
             )
             self.trace.write(
                 "plan_decision",
@@ -282,6 +297,39 @@ class Agent:
                     return result
                 if executed.execution.stop_reason is not None:
                     session_stop_reason = executed.execution.stop_reason
+
+            if session_stop_reason in {"red_started", "direct_started"}:
+                next_phase = "red" if session_stop_reason == "red_started" else "direct"
+                self.trace.write(
+                    "session_end",
+                    {
+                        "session_id": session_id,
+                        "phase": phase,
+                        "end_step": step,
+                        "reason": session_stop_reason,
+                    },
+                )
+                reason = self.tools.context.workflow.reason
+                if reason is None:
+                    raise RuntimeError("strategy transition lost its reason")
+                messages = (
+                    self.planner.red_messages(task, reason)
+                    if next_phase == "red"
+                    else self.planner.direct_messages(task, reason)
+                )
+                consecutive_text_turns = 0
+                session_id = next_phase
+                session_step = 0
+                self.trace.write(
+                    "session_start",
+                    {
+                        "session_id": session_id,
+                        "phase": next_phase,
+                        "start_step": step + 1,
+                        "tool_names": list(self.tools.visible_tool_names),
+                    },
+                )
+                continue
 
             if session_stop_reason == "workflow_failed":
                 result = AgentResult(
@@ -358,6 +406,7 @@ class Agent:
                         "session_id": session_id,
                         "phase": "fix",
                         "start_step": step + 1,
+                        "tool_names": list(self.tools.visible_tool_names),
                     },
                 )
                 for event in workflow.drain_events():

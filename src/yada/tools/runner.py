@@ -18,6 +18,7 @@ from yada.environments import (
     Workspace,
 )
 from yada.exceptions import ToolError
+from yada.red_observer import observe_red_pytest
 from yada.tools.base import ToolContext, ToolExecution
 from yada.tools.command import run_command
 from yada.tools.finish import final_state, finish_task
@@ -75,6 +76,30 @@ class ToolRunner:
                 or schema["function"]["name"] != "replace_text"
             )
         ]
+        self._schema_views = {
+            "selection": self._schemas_named(
+                {"select_strategy", "search_code", "read_file"}
+            ),
+            "red": self._schemas_named(
+                {
+                    "search_code",
+                    "read_file",
+                    "apply_patch",
+                    "replace_text",
+                    "submit_red_test",
+                }
+            ),
+            "fix": self._schemas_named(
+                {
+                    "search_code",
+                    "read_file",
+                    "apply_patch",
+                    "replace_text",
+                    "run_command",
+                    "finish_task",
+                }
+            ),
+        }
 
     @property
     def workspace(self) -> Workspace:
@@ -84,15 +109,31 @@ class ToolRunner:
 
     @property
     def schemas(self) -> list[dict[str, Any]]:
-        """Return the stable tool schemas sent with every model request."""
+        """Return the stable tool view for the current verification phase."""
 
-        return self._schemas
+        phase = self.context.workflow.phase
+        if phase is VerificationPhase.AWAITING_STRATEGY:
+            return self._schema_views["selection"]
+        if phase is VerificationPhase.RED:
+            return self._schema_views["red"]
+        return self._schema_views["fix"]
 
     @property
     def tool_names(self) -> tuple[str, ...]:
-        """Return the frozen model-facing tool names for trace metadata."""
+        """Return every configured model-facing tool name for trace metadata."""
 
         return tuple(schema["function"]["name"] for schema in self._schemas)
+
+    @property
+    def visible_tool_names(self) -> tuple[str, ...]:
+        """Return tool names exposed in the current phase."""
+
+        return tuple(schema["function"]["name"] for schema in self.schemas)
+
+    def _schemas_named(self, names: set[str]) -> list[dict[str, Any]]:
+        return [
+            schema for schema in self._schemas if schema["function"]["name"] in names
+        ]
 
     def execute(self, name: str, arguments: dict[str, Any]) -> ToolExecution:
         """Dispatch one tool call and normalize expected validation failures.
@@ -159,7 +200,13 @@ class ToolRunner:
             if self.context.workflow.phase is VerificationPhase.RED:
                 self._start_red_workspace()
             return ToolExecution(
-                {"ok": True, **data}, events=self.context.workflow.drain_events()
+                {"ok": True, **data},
+                stop_reason=(
+                    "red_started"
+                    if self.context.workflow.phase is VerificationPhase.RED
+                    else "direct_started"
+                ),
+                events=self.context.workflow.drain_events(),
             )
         except ToolError as exc:
             observation: dict[str, Any] = {"ok": False, "error": str(exc)}
@@ -181,6 +228,7 @@ class ToolRunner:
     def _submit_red_test(self, arguments: dict[str, Any]) -> ToolExecution:
         from yada.tools.command import run_command
 
+        command_result: dict[str, Any] | None = None
         try:
             target = arguments.pop("target")
             argv = arguments.pop("argv")
@@ -188,27 +236,45 @@ class ToolRunner:
             timeout_seconds = arguments.pop("timeout_seconds", None)
             if arguments:
                 raise TypeError(f"unexpected arguments: {sorted(arguments)}")
+            if not isinstance(target, str) or not target.strip():
+                raise ToolError(
+                    "target test identity is empty",
+                    error_code="invalid_target_test",
+                )
             pre_command_manifest = self.context.workflow.current_red_manifest()
-            result = run_command(
-                self.context,
-                argv=argv,
-                purpose="inspect",
-                cwd=cwd,
-                timeout_seconds=timeout_seconds,
-                _red_observation=True,
-            )
+            command_cwd = self.context.workspace.resolve(cwd)
+            original_environment = self.context.command_environment
+            with observe_red_pytest(
+                workspace=self.context.workspace.root,
+                command_cwd=command_cwd,
+                target=target,
+                environment=original_environment,
+            ) as observer:
+                self.context.command_environment = observer.environment
+                try:
+                    command_result = run_command(
+                        self.context,
+                        argv=argv,
+                        purpose="inspect",
+                        cwd=cwd,
+                        timeout_seconds=timeout_seconds,
+                        _red_observation=True,
+                    )
+                finally:
+                    self.context.command_environment = original_environment
+                command_result["red_observation"] = observer.read()
             evidence = self.context.workflow.freeze_red_test(
                 target=target,
                 argv=argv,
                 cwd=cwd,
-                command_result=result,
+                command_result=command_result,
                 pre_command_manifest=pre_command_manifest,
             )
             self._materialize_frozen_test(evidence.patch)
             return ToolExecution(
                 {
                     "ok": True,
-                    **result,
+                    **command_result,
                     "status": "test_frozen",
                     "test_patch_sha256": evidence.patch_sha256,
                     "test_files": list(evidence.files),
@@ -222,6 +288,29 @@ class ToolRunner:
             if isinstance(exc, KeyError):
                 exc = TypeError(f"missing required argument: {exc.args[0]}")
             observation: dict[str, Any] = {"ok": False, "error": str(exc)}
+            if command_result is not None:
+                # run_command has already bounded stdout/stderr according to the
+                # runner output limit. Preserve that diagnostic evidence when Red
+                # classification rejects the observation so the model does not
+                # need to rerun the same command just to see its original output.
+                observation.update(
+                    {
+                        key: command_result[key]
+                        for key in (
+                            "argv",
+                            "cwd",
+                            "exit_code",
+                            "timed_out",
+                            "duration_ms",
+                            "stdout",
+                            "stderr",
+                            "truncated",
+                            "environment",
+                            "red_observation",
+                        )
+                        if key in command_result
+                    }
+                )
             if isinstance(exc, ToolError):
                 if exc.error_code is not None:
                     observation["error_code"] = exc.error_code
